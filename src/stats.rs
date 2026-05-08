@@ -3379,4 +3379,348 @@ mod tests {
         };
         assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
     }
+
+    // ── t_critical coverage ───────────────────────────────────────────────────
+
+    #[test]
+    fn t_critical_two_tailed_known_value() {
+        // dof=4, alpha=0.05, two-tailed: t_{0.975,4} ≈ 2.7764
+        // Kills: body→0.0/1.0/-1.0, / → % (gives t_{0.95,4}≈2.132), / → * (gives t_{0.9,4}≈1.533)
+        match (StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest { critical_value, .. } => {
+                assert!(
+                    (critical_value - 2.7764).abs() < 0.001,
+                    "two-tailed cv dof=4 alpha=0.05 should be ~2.776, got {critical_value}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn t_critical_left_tail_is_negative() {
+        // Left-tail: cv = -t_{1-alpha,dof} < 0. Kills: delete - in left arm.
+        match (StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Left,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest { critical_value, .. } => {
+                assert!(
+                    critical_value < 0.0,
+                    "left-tail critical value must be negative, got {critical_value}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── hypothesis_conclusion coverage ────────────────────────────────────────
+
+    #[test]
+    fn hypothesis_conclusion_nonempty_and_descriptive() {
+        // Kills: body→String::new() and body→"xyzzy".into()
+        match (StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest {
+                conclusion,
+                reject_h0,
+                ..
+            } => {
+                assert!(reject_h0);
+                assert!(
+                    conclusion.contains("Reject"),
+                    "conclusion should say Reject, got: {conclusion}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        match (StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 3.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest {
+                conclusion,
+                reject_h0,
+                ..
+            } => {
+                assert!(!reject_h0);
+                assert!(
+                    conclusion.contains("Fail"),
+                    "conclusion should say Fail, got: {conclusion}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── one-sample length guard ───────────────────────────────────────────────
+
+    #[test]
+    fn one_sample_t_two_elements_succeeds() {
+        // len=2 must succeed. Kills < → == (would error for ==2) and < → <= (same).
+        assert!(matches!(
+            (StatsRequest::OneSampleT {
+                sample: vec![1.0, 3.0],
+                mu0: 0.0,
+                alpha: 0.05,
+                tail: Tail::Two,
+            })
+            .evaluate(),
+            StatsResponse::HypothesisTest { .. }
+        ));
+    }
+
+    // ── one-sample reject_h0 strict-less-than ─────────────────────────────────
+
+    #[test]
+    fn one_sample_t_reject_h0_strict_lt() {
+        // mu0==sample_mean → t=0 → p_value=1.0 (two-tailed).
+        // alpha=1.0: p < alpha is false but p <= alpha is true.
+        // Kills: < → <= on reject_h0 line.
+        match (StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 3.0,
+            alpha: 1.0,
+            tail: Tail::Two,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest {
+                reject_h0, p_value, ..
+            } => {
+                assert!((p_value - 1.0).abs() < 1e-10, "p={p_value}");
+                assert!(
+                    !reject_h0,
+                    "p=1.0 with alpha=1.0: strict < means do not reject"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── two-sample length guard ───────────────────────────────────────────────
+
+    #[test]
+    fn two_sample_t_two_element_sample_succeeds() {
+        // sample1 has exactly len=2; must succeed.
+        // Kills < → == and < → <= on the two-sample length guard.
+        assert!(matches!(
+            (StatsRequest::TwoSampleT {
+                sample1: vec![1.0, 3.0],
+                sample2: vec![2.0, 4.0, 6.0],
+                alpha: 0.05,
+                tail: Tail::Two,
+                equal_var: false,
+            })
+            .evaluate(),
+            StatsResponse::HypothesisTest { .. }
+        ));
+    }
+
+    // ── two-sample pooled t: division vs multiplication ───────────────────────
+
+    #[test]
+    fn two_sample_pooled_statistic_asymmetric_sizes() {
+        // sample1=[1,3] (n=2,mean=2,var=2), sample2=[2,4,6] (n=3,mean=4,var=4)
+        // sp2 = (1*2+2*4)/3 = 10/3; se = sp*sqrt(5/6) = sqrt(10/3)*sqrt(5/6) = 5/3
+        // t = (2-4)/(5/3) = -6/5 = -1.2
+        // / → * would give t = -2*(5/3) = -10/3 ≠ -1.2  — kills that mutation.
+        match (StatsRequest::TwoSampleT {
+            sample1: vec![1.0, 3.0],
+            sample2: vec![2.0, 4.0, 6.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+            equal_var: true,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest { statistic, .. } => {
+                assert!((statistic - (-1.2)).abs() < 1e-10, "t={statistic}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── two-sample Welch t: division vs multiplication ────────────────────────
+
+    #[test]
+    fn two_sample_welch_statistic_asymmetric_variances() {
+        // sample1=[1,5] (n=2,mean=3,var=8), sample2=[1,2,3] (n=3,mean=2,var=1)
+        // v1n=4, v2n=1/3; se=sqrt(13/3); t=(3-2)/sqrt(13/3)=sqrt(3/13)≈0.4804
+        // / → * would give t = 1*sqrt(13/3)≈2.082 ≠ 0.4804 — kills that mutation.
+        match (StatsRequest::TwoSampleT {
+            sample1: vec![1.0, 5.0],
+            sample2: vec![1.0, 2.0, 3.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+            equal_var: false,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest { statistic, .. } => {
+                let expected = (3.0_f64 / 13.0).sqrt();
+                assert!(
+                    (statistic - expected).abs() < 1e-10,
+                    "t={statistic} expected {expected}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── two-sample reject_h0 strict-less-than ────────────────────────────────
+
+    #[test]
+    fn two_sample_t_reject_h0_strict_lt() {
+        // mean1==mean2 → t=0 → p_value=1.0 (two-tailed); alpha=1.0.
+        // p < alpha is false; p <= alpha is true. Kills < → <= on reject_h0 line.
+        // sample1=[1,3] (mean=2,var=2), sample2=[0,4] (mean=2,var=8) — different variances so se≠0.
+        match (StatsRequest::TwoSampleT {
+            sample1: vec![1.0, 3.0],
+            sample2: vec![0.0, 4.0],
+            alpha: 1.0,
+            tail: Tail::Two,
+            equal_var: false,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest {
+                reject_h0, p_value, ..
+            } => {
+                assert!((p_value - 1.0).abs() < 1e-6, "p={p_value}");
+                assert!(
+                    !reject_h0,
+                    "p=1.0 with alpha=1.0: strict < means do not reject"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── chi-square GoF validation ─────────────────────────────────────────────
+
+    #[test]
+    fn chi_square_gof_rejects_infinite_observed() {
+        // Inf is not finite but Inf >= 0. Kills && → || on observed guard (line 1540).
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![f64::INFINITY, 10.0],
+            expected: vec![10.0, 10.0],
+            alpha: 0.05,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    #[test]
+    fn chi_square_gof_rejects_infinite_expected() {
+        // Inf is not finite but Inf > 0. Kills && → || on expected guard (line 1543).
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 10.0],
+            expected: vec![f64::INFINITY, 10.0],
+            alpha: 0.05,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    #[test]
+    fn chi_square_gof_rejects_zero_expected() {
+        // 0.0 > 0.0 is false; 0.0 >= 0.0 is true. Kills > → >= on expected guard (line 1543).
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 10.0],
+            expected: vec![0.0, 10.0],
+            alpha: 0.05,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    // ── chi-square GoF reject_h0 strict-less-than ─────────────────────────────
+
+    #[test]
+    fn chi_square_gof_reject_h0_strict_lt() {
+        // observed==expected → chi2=0 → p_value=1.0; alpha=1.0.
+        // p < alpha is false; p <= alpha is true. Kills < → <= on reject_h0 line.
+        match (StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 10.0],
+            expected: vec![10.0, 10.0],
+            alpha: 1.0,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest {
+                reject_h0, p_value, ..
+            } => {
+                assert!((p_value - 1.0).abs() < 1e-6, "p={p_value}");
+                assert!(
+                    !reject_h0,
+                    "p=1.0 with alpha=1.0: strict < means do not reject"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── ANOVA F-statistic: division vs multiplication ─────────────────────────
+
+    #[test]
+    fn anova_f_statistic_msw_not_one() {
+        // groups=[[1,2],[3,4],[5,6]]: grand_mean=3.5
+        // ss_between=16, ss_within=1.5, df_between=2, df_within=3
+        // MSB=8, MSW=0.5; F=16.0. / → * would give F=8*0.5=4.0 ≠ 16.0.
+        match (StatsRequest::OneWayAnova {
+            groups: vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]],
+            alpha: 0.05,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest { statistic, .. } => {
+                assert!((statistic - 16.0).abs() < 1e-10, "F={statistic}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // ── ANOVA reject_h0 strict-less-than ──────────────────────────────────────
+
+    #[test]
+    fn anova_reject_h0_strict_lt() {
+        // All group means equal → ss_between=0 → F=0 → p_value=1.0; alpha=1.0.
+        // p < alpha is false; p <= alpha is true. Kills < → <= on reject_h0 line.
+        match (StatsRequest::OneWayAnova {
+            groups: vec![vec![1.0, 3.0], vec![1.0, 3.0], vec![1.0, 3.0]],
+            alpha: 1.0,
+        })
+        .evaluate()
+        {
+            StatsResponse::HypothesisTest {
+                reject_h0, p_value, ..
+            } => {
+                assert!((p_value - 1.0).abs() < 1e-6, "p={p_value}");
+                assert!(
+                    !reject_h0,
+                    "p=1.0 with alpha=1.0: strict < means do not reject"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
 }
