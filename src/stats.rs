@@ -4,7 +4,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use statrs::distribution::{Binomial, ContinuousCDF, Discrete, DiscreteCDF, Normal, StudentsT};
+use statrs::distribution::{
+    Beta, Binomial, ChiSquared, Continuous, ContinuousCDF, Discrete, DiscreteCDF, Exp,
+    FisherSnedecor, Normal, Poisson, StudentsT, Uniform,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
@@ -37,6 +40,58 @@ pub enum StatsRequest {
         n: u64,
         p: f64,
         k: u64,
+    },
+    TCdf {
+        degrees_of_freedom: f64,
+        x: f64,
+    },
+    TInverseCdf {
+        degrees_of_freedom: f64,
+        p: f64,
+    },
+    Chi2Cdf {
+        degrees_of_freedom: f64,
+        x: f64,
+    },
+    Chi2InverseCdf {
+        degrees_of_freedom: f64,
+        p: f64,
+    },
+    PoissonPmf {
+        lambda: f64,
+        k: u64,
+    },
+    PoissonCdf {
+        lambda: f64,
+        k: u64,
+    },
+    BetaCdf {
+        alpha: f64,
+        beta: f64,
+        x: f64,
+    },
+    BetaPdf {
+        alpha: f64,
+        beta: f64,
+        x: f64,
+    },
+    FCdf {
+        d1: f64,
+        d2: f64,
+        x: f64,
+    },
+    ExponentialCdf {
+        rate: f64,
+        x: f64,
+    },
+    ExponentialPdf {
+        rate: f64,
+        x: f64,
+    },
+    UniformCdf {
+        min: f64,
+        max: f64,
+        x: f64,
     },
     Correlation {
         x: Vec<f64>,
@@ -298,6 +353,104 @@ impl StatsRequest {
                 let binomial = binomial(*n, *p)?;
                 Ok(StatsOutput::Probability(binomial.cdf(*k)))
             }
+            StatsRequest::TCdf {
+                degrees_of_freedom,
+                x,
+            } => {
+                ensure_positive_finite(*degrees_of_freedom, "degrees_of_freedom")?;
+                ensure_finite(*x, "x")?;
+                let t = StudentsT::new(0.0, 1.0, *degrees_of_freedom).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(t.cdf(*x)))
+            }
+            StatsRequest::TInverseCdf {
+                degrees_of_freedom,
+                p,
+            } => {
+                ensure_positive_finite(*degrees_of_freedom, "degrees_of_freedom")?;
+                ensure_probability_open(*p, "p")?;
+                let t = StudentsT::new(0.0, 1.0, *degrees_of_freedom).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Quantile(t.inverse_cdf(*p)))
+            }
+            StatsRequest::Chi2Cdf {
+                degrees_of_freedom,
+                x,
+            } => {
+                ensure_positive_finite(*degrees_of_freedom, "degrees_of_freedom")?;
+                if *x < 0.0 {
+                    return Err("x must be non-negative for chi2_cdf".to_owned());
+                }
+                let chi2 = ChiSquared::new(*degrees_of_freedom).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(chi2.cdf(*x)))
+            }
+            StatsRequest::Chi2InverseCdf {
+                degrees_of_freedom,
+                p,
+            } => {
+                ensure_positive_finite(*degrees_of_freedom, "degrees_of_freedom")?;
+                ensure_probability_open(*p, "p")?;
+                let chi2 = ChiSquared::new(*degrees_of_freedom).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Quantile(chi2.inverse_cdf(*p)))
+            }
+            StatsRequest::PoissonPmf { lambda, k } => {
+                ensure_positive_finite(*lambda, "lambda")?;
+                let poisson = Poisson::new(*lambda).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(poisson.pmf(*k)))
+            }
+            StatsRequest::PoissonCdf { lambda, k } => {
+                ensure_positive_finite(*lambda, "lambda")?;
+                let poisson = Poisson::new(*lambda).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(poisson.cdf(*k)))
+            }
+            StatsRequest::BetaCdf { alpha, beta, x } => {
+                ensure_positive_finite(*alpha, "alpha")?;
+                ensure_positive_finite(*beta, "beta")?;
+                if *x < 0.0 || *x > 1.0 {
+                    return Err("x must be in [0, 1] for beta_cdf".to_owned());
+                }
+                let beta_dist = Beta::new(*alpha, *beta).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(beta_dist.cdf(*x)))
+            }
+            StatsRequest::BetaPdf { alpha, beta, x } => {
+                ensure_positive_finite(*alpha, "alpha")?;
+                ensure_positive_finite(*beta, "beta")?;
+                if *x < 0.0 || *x > 1.0 {
+                    return Err("x must be in [0, 1] for beta_pdf".to_owned());
+                }
+                let beta_dist = Beta::new(*alpha, *beta).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(beta_dist.pdf(*x)))
+            }
+            StatsRequest::FCdf { d1, d2, x } => {
+                ensure_positive_finite(*d1, "d1")?;
+                ensure_positive_finite(*d2, "d2")?;
+                if *x < 0.0 {
+                    return Err("x must be non-negative for f_cdf".to_owned());
+                }
+                let f = FisherSnedecor::new(*d1, *d2).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(f.cdf(*x)))
+            }
+            StatsRequest::ExponentialCdf { rate, x } => {
+                ensure_positive_finite(*rate, "rate")?;
+                if *x < 0.0 {
+                    return Err("x must be non-negative for exponential_cdf".to_owned());
+                }
+                let exp = Exp::new(*rate).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(exp.cdf(*x)))
+            }
+            StatsRequest::ExponentialPdf { rate, x } => {
+                ensure_positive_finite(*rate, "rate")?;
+                if *x < 0.0 {
+                    return Err("x must be non-negative for exponential_pdf".to_owned());
+                }
+                let exp = Exp::new(*rate).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(exp.pdf(*x)))
+            }
+            StatsRequest::UniformCdf { min, max, x } => {
+                if min >= max {
+                    return Err("min must be less than max for uniform_cdf".to_owned());
+                }
+                let uniform = Uniform::new(*min, *max).map_err(|e| e.to_string())?;
+                Ok(StatsOutput::Probability(uniform.cdf(*x)))
+            }
             StatsRequest::Correlation { x, y } => {
                 let (pearson_r, n) = correlation(x, y)?;
                 Ok(StatsOutput::CorrelationResult { pearson_r, n })
@@ -368,6 +521,18 @@ pub fn stats_schema_json() -> Value {
             {"$ref": "#/$defs/StudentTInterval"},
             {"$ref": "#/$defs/BinomialPmf"},
             {"$ref": "#/$defs/BinomialCdf"},
+            {"$ref": "#/$defs/TCdf"},
+            {"$ref": "#/$defs/TInverseCdf"},
+            {"$ref": "#/$defs/Chi2Cdf"},
+            {"$ref": "#/$defs/Chi2InverseCdf"},
+            {"$ref": "#/$defs/PoissonPmf"},
+            {"$ref": "#/$defs/PoissonCdf"},
+            {"$ref": "#/$defs/BetaCdf"},
+            {"$ref": "#/$defs/BetaPdf"},
+            {"$ref": "#/$defs/FCdf"},
+            {"$ref": "#/$defs/ExponentialCdf"},
+            {"$ref": "#/$defs/ExponentialPdf"},
+            {"$ref": "#/$defs/UniformCdf"},
             {"$ref": "#/$defs/Correlation"},
             {"$ref": "#/$defs/LinearRegression"},
             {"$ref": "#/$defs/Percentile"},
@@ -441,6 +606,130 @@ pub fn stats_schema_json() -> Value {
                     "n": {"type": "integer", "minimum": 0},
                     "p": {"type": "number", "minimum": 0, "maximum": 1},
                     "k": {"type": "integer", "minimum": 0}
+                }
+            },
+            "TCdf": {
+                "type": "object",
+                "required": ["intent", "degrees_of_freedom", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "t_cdf"},
+                    "degrees_of_freedom": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number"}
+                }
+            },
+            "TInverseCdf": {
+                "type": "object",
+                "required": ["intent", "degrees_of_freedom", "p"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "t_inverse_cdf"},
+                    "degrees_of_freedom": {"type": "number", "exclusiveMinimum": 0},
+                    "p": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+                }
+            },
+            "Chi2Cdf": {
+                "type": "object",
+                "required": ["intent", "degrees_of_freedom", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "chi2_cdf"},
+                    "degrees_of_freedom": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number", "minimum": 0}
+                }
+            },
+            "Chi2InverseCdf": {
+                "type": "object",
+                "required": ["intent", "degrees_of_freedom", "p"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "chi2_inverse_cdf"},
+                    "degrees_of_freedom": {"type": "number", "exclusiveMinimum": 0},
+                    "p": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+                }
+            },
+            "PoissonPmf": {
+                "type": "object",
+                "required": ["intent", "lambda", "k"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "poisson_pmf"},
+                    "lambda": {"type": "number", "exclusiveMinimum": 0},
+                    "k": {"type": "integer", "minimum": 0}
+                }
+            },
+            "PoissonCdf": {
+                "type": "object",
+                "required": ["intent", "lambda", "k"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "poisson_cdf"},
+                    "lambda": {"type": "number", "exclusiveMinimum": 0},
+                    "k": {"type": "integer", "minimum": 0}
+                }
+            },
+            "BetaCdf": {
+                "type": "object",
+                "required": ["intent", "alpha", "beta", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "beta_cdf"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0},
+                    "beta": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number", "minimum": 0, "maximum": 1}
+                }
+            },
+            "BetaPdf": {
+                "type": "object",
+                "required": ["intent", "alpha", "beta", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "beta_pdf"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0},
+                    "beta": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number", "minimum": 0, "maximum": 1}
+                }
+            },
+            "FCdf": {
+                "type": "object",
+                "required": ["intent", "d1", "d2", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "f_cdf"},
+                    "d1": {"type": "number", "exclusiveMinimum": 0},
+                    "d2": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number", "minimum": 0}
+                }
+            },
+            "ExponentialCdf": {
+                "type": "object",
+                "required": ["intent", "rate", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "exponential_cdf"},
+                    "rate": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number", "minimum": 0}
+                }
+            },
+            "ExponentialPdf": {
+                "type": "object",
+                "required": ["intent", "rate", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "exponential_pdf"},
+                    "rate": {"type": "number", "exclusiveMinimum": 0},
+                    "x": {"type": "number", "minimum": 0}
+                }
+            },
+            "UniformCdf": {
+                "type": "object",
+                "required": ["intent", "min", "max", "x"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "uniform_cdf"},
+                    "min": {"type": "number"},
+                    "max": {"type": "number"},
+                    "x": {"type": "number"}
                 }
             },
             "Correlation": {
@@ -1348,6 +1637,304 @@ mod tests {
                     skewness > 1.0,
                     "skewness of [1,2,10] n=3 should be >1, got {skewness}"
                 )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_t_cdf_and_t_inverse_cdf() {
+        let cdf = StatsRequest::TCdf {
+            degrees_of_freedom: 10.0,
+            x: 2.228,
+        }
+        .evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.975).abs() < 0.001,
+                    "t_cdf(10, 2.228) ≈ 0.975, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let quantile = StatsRequest::TInverseCdf {
+            degrees_of_freedom: 10.0,
+            p: 0.975,
+        }
+        .evaluate();
+        match quantile {
+            StatsResponse::Quantile { value, .. } => {
+                assert!(
+                    (value - 2.228).abs() < 0.001,
+                    "t_inverse(10, 0.975) ≈ 2.228, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_chi2_cdf_and_chi2_inverse_cdf() {
+        let cdf = StatsRequest::Chi2Cdf {
+            degrees_of_freedom: 3.0,
+            x: 7.815,
+        }
+        .evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.95).abs() < 0.001,
+                    "chi2_cdf(3, 7.815) ≈ 0.95, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let quantile = StatsRequest::Chi2InverseCdf {
+            degrees_of_freedom: 3.0,
+            p: 0.95,
+        }
+        .evaluate();
+        match quantile {
+            StatsResponse::Quantile { value, .. } => {
+                assert!(
+                    (value - 7.815).abs() < 0.01,
+                    "chi2_inverse(3, 0.95) ≈ 7.815, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_poisson_pmf_and_cdf() {
+        let pmf = StatsRequest::PoissonPmf { lambda: 3.0, k: 2 }.evaluate();
+        match pmf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.2240).abs() < 0.001,
+                    "poisson_pmf(3,2) ≈ 0.224, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let cdf = StatsRequest::PoissonCdf { lambda: 3.0, k: 5 }.evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.9161).abs() < 0.001,
+                    "poisson_cdf(3,5) ≈ 0.916, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_beta_cdf_and_pdf() {
+        let cdf = StatsRequest::BetaCdf {
+            alpha: 2.0,
+            beta: 5.0,
+            x: 0.3,
+        }
+        .evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.5798).abs() < 0.001,
+                    "beta_cdf(2,5,0.3) ≈ 0.580, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let pdf = StatsRequest::BetaPdf {
+            alpha: 2.0,
+            beta: 5.0,
+            x: 0.3,
+        }
+        .evaluate();
+        match pdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 2.1609).abs() < 0.001,
+                    "beta_pdf(2,5,0.3) ≈ 2.161, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_f_cdf() {
+        let cdf = StatsRequest::FCdf {
+            d1: 5.0,
+            d2: 10.0,
+            x: 3.33,
+        }
+        .evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.95).abs() < 0.005,
+                    "f_cdf(5,10,3.33) ≈ 0.95, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_exponential_cdf_and_pdf() {
+        let cdf = StatsRequest::ExponentialCdf { rate: 1.0, x: 1.0 }.evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - (1.0 - std::f64::consts::E.recip())).abs() < 1e-9,
+                    "exp_cdf(1,1) = 1-1/e, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let pdf = StatsRequest::ExponentialPdf { rate: 2.0, x: 0.0 }.evaluate();
+        match pdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 2.0).abs() < 1e-9,
+                    "exp_pdf(2,0) = rate = 2.0, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_uniform_cdf() {
+        let cdf = StatsRequest::UniformCdf {
+            min: 0.0,
+            max: 10.0,
+            x: 5.0,
+        }
+        .evaluate();
+        match cdf {
+            StatsResponse::Probability { value, .. } => {
+                assert!(
+                    (value - 0.5).abs() < 1e-9,
+                    "uniform_cdf(0,10,5) = 0.5, got {value}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_distributions_reject_invalid_parameters() {
+        assert!(matches!(
+            StatsRequest::TCdf {
+                degrees_of_freedom: 0.0,
+                x: 1.0
+            }
+            .evaluate(),
+            StatsResponse::Error { .. }
+        ));
+        assert!(matches!(
+            StatsRequest::Chi2Cdf { degrees_of_freedom: 3.0, x: -1.0 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("non-negative")
+        ));
+        assert!(matches!(
+            StatsRequest::PoissonPmf { lambda: -1.0, k: 0 }.evaluate(),
+            StatsResponse::Error { .. }
+        ));
+        assert!(matches!(
+            StatsRequest::BetaCdf { alpha: 2.0, beta: 5.0, x: -0.1 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("[0, 1]")
+        ));
+        assert!(matches!(
+            StatsRequest::BetaCdf { alpha: 2.0, beta: 5.0, x: 1.5 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("[0, 1]")
+        ));
+        assert!(matches!(
+            StatsRequest::FCdf { d1: 5.0, d2: 10.0, x: -1.0 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("non-negative")
+        ));
+        assert!(matches!(
+            StatsRequest::UniformCdf { min: 5.0, max: 3.0, x: 4.0 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("min must be less than max")
+        ));
+        assert!(matches!(
+            StatsRequest::UniformCdf { min: 5.0, max: 5.0, x: 5.0 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("min must be less than max")
+        ));
+        // BetaPdf rejects x < 0 and x > 1 (kills || → && and > → == mutations at line 416)
+        assert!(matches!(
+            StatsRequest::BetaPdf { alpha: 2.0, beta: 5.0, x: -0.1 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("[0, 1]")
+        ));
+        assert!(matches!(
+            StatsRequest::BetaPdf { alpha: 2.0, beta: 5.0, x: 1.5 }.evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("[0, 1]")
+        ));
+    }
+
+    #[test]
+    fn new_distributions_accept_boundary_x_values() {
+        // x=0 is valid for chi2_cdf (kills `< → <=` mutation)
+        assert!(matches!(
+            StatsRequest::Chi2Cdf { degrees_of_freedom: 3.0, x: 0.0 }.evaluate(),
+            StatsResponse::Probability { value, .. } if value == 0.0
+        ));
+        // x=0 is valid for f_cdf (kills `< → <=` mutation)
+        assert!(matches!(
+            StatsRequest::FCdf { d1: 5.0, d2: 10.0, x: 0.0 }.evaluate(),
+            StatsResponse::Probability { value, .. } if value == 0.0
+        ));
+        // x=0 is valid for exponential_cdf (kills `< → <=` mutation)
+        assert!(matches!(
+            StatsRequest::ExponentialCdf { rate: 1.0, x: 0.0 }.evaluate(),
+            StatsResponse::Probability { value, .. } if value == 0.0
+        ));
+        // x=0 is valid for exponential_pdf (kills `< → <=` mutation)
+        match (StatsRequest::ExponentialPdf { rate: 2.0, x: 0.0 }).evaluate() {
+            StatsResponse::Probability { value, .. } => {
+                assert!((value - 2.0).abs() < 1e-9)
+            }
+            other => panic!("{other:?}"),
+        }
+        // x=0 valid for beta_cdf (kills `< → <=` mutation on the < 0 guard)
+        assert!(matches!(
+            StatsRequest::BetaCdf { alpha: 2.0, beta: 5.0, x: 0.0 }.evaluate(),
+            StatsResponse::Probability { value, .. } if value == 0.0
+        ));
+        // x=1 valid for beta_cdf (kills `> → >=` mutation on the > 1 guard)
+        assert!(matches!(
+            StatsRequest::BetaCdf { alpha: 2.0, beta: 5.0, x: 1.0 }.evaluate(),
+            StatsResponse::Probability { value, .. } if (value - 1.0).abs() < 1e-9
+        ));
+        // x=0 valid for beta_pdf (kills < → <= mutation on lower guard)
+        match (StatsRequest::BetaPdf {
+            alpha: 2.0,
+            beta: 5.0,
+            x: 0.0,
+        })
+        .evaluate()
+        {
+            StatsResponse::Probability { .. } => {}
+            other => panic!("{other:?}"),
+        }
+        // x=1 valid for beta_pdf (kills > → >= mutation on upper guard)
+        match (StatsRequest::BetaPdf {
+            alpha: 2.0,
+            beta: 5.0,
+            x: 1.0,
+        })
+        .evaluate()
+        {
+            StatsResponse::Probability { .. } => {}
+            other => panic!("{other:?}"),
+        }
+        // x=0.5 valid for exponential_pdf (kills < → > mutation at line 441)
+        match (StatsRequest::ExponentialPdf { rate: 2.0, x: 0.5 }).evaluate() {
+            StatsResponse::Probability { value, .. } => {
+                assert!((value - 2.0 * (-1.0_f64).exp()).abs() < 1e-9)
             }
             other => panic!("{other:?}"),
         }

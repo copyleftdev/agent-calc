@@ -2618,6 +2618,160 @@ fn stats_computes_rank() {
 }
 
 #[test]
+fn stats_computes_t_cdf_and_t_inverse_cdf() {
+    let input = serde_json::json!({"intent": "t_cdf", "degrees_of_freedom": 10.0, "x": 2.228});
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "probability");
+    assert!((json["value"].as_f64().unwrap() - 0.975).abs() < 0.001);
+
+    let input2 =
+        serde_json::json!({"intent": "t_inverse_cdf", "degrees_of_freedom": 10.0, "p": 0.975});
+    let mut child2 = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child2
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input2.to_string().as_bytes())
+        .unwrap();
+    let output2 = child2.wait_with_output().unwrap();
+    assert!(output2.status.success());
+    let json2: serde_json::Value = serde_json::from_slice(&output2.stdout).unwrap();
+    assert_eq!(json2["status"], "quantile");
+    assert!((json2["value"].as_f64().unwrap() - 2.228).abs() < 0.001);
+}
+
+#[test]
+fn stats_computes_chi2_cdf_and_chi2_inverse_cdf() {
+    let input = serde_json::json!({"intent": "chi2_cdf", "degrees_of_freedom": 3.0, "x": 7.815});
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "probability");
+    assert!((json["value"].as_f64().unwrap() - 0.95).abs() < 0.001);
+
+    let input2 =
+        serde_json::json!({"intent": "chi2_inverse_cdf", "degrees_of_freedom": 3.0, "p": 0.95});
+    let mut child2 = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child2
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input2.to_string().as_bytes())
+        .unwrap();
+    let output2 = child2.wait_with_output().unwrap();
+    assert!(output2.status.success());
+    let json2: serde_json::Value = serde_json::from_slice(&output2.stdout).unwrap();
+    assert_eq!(json2["status"], "quantile");
+    assert!((json2["value"].as_f64().unwrap() - 7.815).abs() < 0.01);
+}
+
+#[test]
+fn stats_computes_poisson_pmf_and_cdf() {
+    let input = serde_json::json!({"intent": "poisson_pmf", "lambda": 3.0, "k": 2});
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "probability");
+    assert!((json["value"].as_f64().unwrap() - 0.2240).abs() < 0.001);
+}
+
+#[test]
+fn stats_computes_beta_and_f_and_exponential_and_uniform() {
+    for (input, expected_status, approx) in [
+        (
+            serde_json::json!({"intent": "beta_cdf", "alpha": 2.0, "beta": 5.0, "x": 0.3}),
+            "probability",
+            0.5798f64,
+        ),
+        (
+            serde_json::json!({"intent": "f_cdf", "d1": 5.0, "d2": 10.0, "x": 3.33}),
+            "probability",
+            0.95,
+        ),
+        (
+            serde_json::json!({"intent": "exponential_cdf", "rate": 1.0, "x": 1.0}),
+            "probability",
+            1.0 - std::f64::consts::E.recip(),
+        ),
+        (
+            serde_json::json!({"intent": "uniform_cdf", "min": 0.0, "max": 10.0, "x": 5.0}),
+            "probability",
+            0.5,
+        ),
+    ] {
+        let mut child = Command::new(bin())
+            .arg("stats")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(input.to_string().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "failed for {input}");
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(json["status"], expected_status, "wrong status for {input}");
+        assert!(
+            (json["value"].as_f64().unwrap() - approx).abs() < 0.005,
+            "value mismatch for {input}: expected ≈{approx}, got {}",
+            json["value"]
+        );
+    }
+}
+
+#[test]
 fn complex_abs_accepts_modulus_alias() {
     // Regression: modulus is now an alias for abs to avoid collision with the
     // upcoming expression AST `abs` node.
