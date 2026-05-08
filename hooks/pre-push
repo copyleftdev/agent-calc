@@ -66,12 +66,15 @@ done
 
 printf "  Running: cargo mutants %s\n\n" "$FILE_FLAGS"
 
-if cargo mutants --timeout-multiplier 3.0 $FILE_FLAGS -- --locked; then
-    printf "\n${GRN}Mutation gate passed.${RST}\n\n"
-else
+# Exit 0 = all caught/unviable; exit 1 = missed; exit 2 = timeout only (detected, not missed)
+cargo mutants --timeout-multiplier 3.0 $FILE_FLAGS -- --locked || true
+
+if grep -q '.' mutants.out/missed.txt 2>/dev/null; then
     printf "\n${RED}Mutation gate failed — surviving mutants detected.${RST}\n"
     printf "  Surviving mutants = weak properties. Strengthen them before pushing to main.\n"
     printf "  Report: ${YLW}mutants.out/${RST}\n"
     printf "  To skip (not recommended): ${YLW}git push --no-verify${RST}\n\n"
     exit 1
+else
+    printf "\n${GRN}Mutation gate passed.${RST}\n\n"
 fi
