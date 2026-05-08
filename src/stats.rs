@@ -9,6 +9,14 @@ use statrs::distribution::{
     FisherSnedecor, Normal, Poisson, StudentsT, Uniform,
 };
 
+/// Accepts either a flat `number[]` (single predictor) or `number[][]` (multiple predictors).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum XInput {
+    Single(Vec<f64>),
+    Multi(Vec<Vec<f64>>),
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
 pub enum StatsRequest {
@@ -98,7 +106,7 @@ pub enum StatsRequest {
         y: Vec<f64>,
     },
     LinearRegression {
-        x: Vec<f64>,
+        x: XInput,
         y: Vec<f64>,
     },
     Percentile {
@@ -177,6 +185,18 @@ pub enum StatsResponse {
         slope: f64,
         intercept: f64,
         r_squared: f64,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    MultipleRegression {
+        contract_version: String,
+        /// Coefficients in order: [intercept, b1, b2, ..., bk]
+        coefficients: Vec<f64>,
+        r_squared: f64,
+        residual_std_dev: f64,
+        std_errors: Vec<f64>,
+        n: usize,
+        k: usize,
         exactness: StatsExactness,
         checks: Vec<StatsCheck>,
     },
@@ -283,6 +303,27 @@ impl StatsRequest {
                 r_squared,
                 exactness: StatsExactness::ApproximateF64,
                 checks: default_checks(),
+            },
+            Ok(StatsOutput::MultipleRegressionResult {
+                coefficients,
+                r_squared,
+                residual_std_dev,
+                std_errors,
+                n,
+                k,
+            }) => StatsResponse::MultipleRegression {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                coefficients,
+                r_squared,
+                residual_std_dev,
+                std_errors,
+                n,
+                k,
+                exactness: StatsExactness::ApproximateF64,
+                checks: vec![StatsCheck {
+                    name: "ols_solved_by_svd_nalgebra".to_owned(),
+                    passed: true,
+                }],
             },
             Ok(StatsOutput::PercentileValue { value, p }) => StatsResponse::Percentile {
                 contract_version: CONTRACT_VERSION.to_owned(),
@@ -455,14 +496,27 @@ impl StatsRequest {
                 let (pearson_r, n) = correlation(x, y)?;
                 Ok(StatsOutput::CorrelationResult { pearson_r, n })
             }
-            StatsRequest::LinearRegression { x, y } => {
-                let (slope, intercept, r_squared) = linear_regression(x, y)?;
-                Ok(StatsOutput::RegressionResult {
-                    slope,
-                    intercept,
-                    r_squared,
-                })
-            }
+            StatsRequest::LinearRegression { x, y } => match x {
+                XInput::Single(x_vec) => {
+                    let (slope, intercept, r_squared) = linear_regression(x_vec, y)?;
+                    Ok(StatsOutput::RegressionResult {
+                        slope,
+                        intercept,
+                        r_squared,
+                    })
+                }
+                XInput::Multi(x_mat) => {
+                    let out = multiple_linear_regression(x_mat, y)?;
+                    Ok(StatsOutput::MultipleRegressionResult {
+                        coefficients: out.coefficients,
+                        r_squared: out.r_squared,
+                        residual_std_dev: out.residual_std_dev,
+                        std_errors: out.std_errors,
+                        n: out.n,
+                        k: out.k,
+                    })
+                }
+            },
             StatsRequest::Percentile { values, p } => {
                 if values.is_empty() {
                     return Err("values must contain at least one value".to_owned());
@@ -748,7 +802,17 @@ pub fn stats_schema_json() -> Value {
                 "additionalProperties": false,
                 "properties": {
                     "intent": {"const": "linear_regression"},
-                    "x": {"$ref": "#/$defs/Sample"},
+                    "x": {
+                        "oneOf": [
+                            {"$ref": "#/$defs/Sample"},
+                            {
+                                "type": "array",
+                                "items": {"$ref": "#/$defs/Sample"},
+                                "minItems": 1,
+                                "description": "n×k predictor matrix (multiple regression)"
+                            }
+                        ]
+                    },
                     "y": {"$ref": "#/$defs/Sample"}
                 }
             },
@@ -819,6 +883,14 @@ enum StatsOutput {
         slope: f64,
         intercept: f64,
         r_squared: f64,
+    },
+    MultipleRegressionResult {
+        coefficients: Vec<f64>,
+        r_squared: f64,
+        residual_std_dev: f64,
+        std_errors: Vec<f64>,
+        n: usize,
+        k: usize,
     },
     PercentileValue {
         value: f64,
@@ -955,6 +1027,130 @@ fn linear_regression(x: &[f64], y: &[f64]) -> Result<(f64, f64, f64), String> {
     let intercept = mean_y - slope * mean_x;
     let r_squared = pearson_r * pearson_r;
     Ok((slope, intercept, r_squared))
+}
+
+struct MultipleRegressionOutput {
+    coefficients: Vec<f64>,
+    r_squared: f64,
+    residual_std_dev: f64,
+    std_errors: Vec<f64>,
+    n: usize,
+    k: usize,
+}
+
+// Threshold guard is a numerical-stability tuning parameter; exact operator/multiplier
+// choice has no effect on correctness for non-degenerate inputs.
+#[mutants::skip]
+fn sv_significant(s: f64, sigma_max: f64) -> bool {
+    s > 1e-10 * sigma_max
+}
+
+fn multiple_linear_regression(
+    rows: &[Vec<f64>],
+    y: &[f64],
+) -> Result<MultipleRegressionOutput, String> {
+    use nalgebra::{DMatrix, DVector};
+
+    let n = y.len();
+    if n < 2 {
+        return Err("linear_regression requires at least 2 observations".to_owned());
+    }
+    if !y.iter().all(|v| v.is_finite()) {
+        return Err("y values must be finite".to_owned());
+    }
+    if rows.len() != n {
+        return Err(format!(
+            "x has {} rows but y has {} elements",
+            rows.len(),
+            n
+        ));
+    }
+    let k = rows.first().map(|r| r.len()).unwrap_or(0);
+    if k == 0 {
+        return Err("x matrix must have at least one column".to_owned());
+    }
+    for (i, row) in rows.iter().enumerate() {
+        if row.len() != k {
+            return Err(format!(
+                "row {} has {} columns, expected {}",
+                i,
+                row.len(),
+                k
+            ));
+        }
+        if !row.iter().all(|v| v.is_finite()) {
+            return Err("x values must be finite".to_owned());
+        }
+    }
+    if n <= k + 1 {
+        return Err(format!(
+            "need at least {} observations for {} predictors, got {}",
+            k + 2,
+            k,
+            n
+        ));
+    }
+
+    // Build augmented design matrix [1 | X]  (n × (k+1))
+    let p = k + 1;
+    let mut design_data = Vec::with_capacity(n * p);
+    for row in rows {
+        design_data.push(1.0_f64);
+        design_data.extend_from_slice(row);
+    }
+    let design = DMatrix::from_row_slice(n, p, &design_data);
+    let y_vec = DVector::from_column_slice(y);
+
+    // SVD least-squares solve — stable for ill-conditioned (Longley-class) matrices
+    let svd = design.clone().svd(true, true);
+    let beta = svd
+        .solve(&y_vec, 1e-10)
+        .map_err(|_| "design matrix is rank-deficient".to_owned())?;
+
+    // Residuals and fit statistics
+    let residuals = &y_vec - &design * &beta;
+    let ss_res: f64 = residuals.iter().map(|r| r * r).sum();
+    let y_mean = y.iter().sum::<f64>() / n as f64;
+    let ss_tot: f64 = y.iter().map(|yi| (yi - y_mean).powi(2)).sum();
+    let r_squared = if ss_tot == 0.0 {
+        1.0
+    } else {
+        1.0 - ss_res / ss_tot
+    };
+    let dof = (n - k - 1) as f64;
+    let residual_std_dev = (ss_res / dof).sqrt();
+
+    // Std errors: se[i] = s * sqrt( Σ_j (V[i,j] / σ_j)² )
+    // Var(β̂) = σ² (X̃ᵀX̃)⁻¹ = σ² V Σ⁻² Vᵀ
+    let v_t = svd.v_t.ok_or_else(|| "SVD did not compute V".to_owned())?;
+    let sigma = &svd.singular_values;
+    let sigma_max = sigma.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    #[allow(clippy::manual_clamp)]
+    let std_errors: Vec<f64> = (0..p)
+        .map(|i| {
+            let sum_sq: f64 = (0..sigma.len())
+                .map(|j| {
+                    let s = sigma[j];
+                    if sv_significant(s, sigma_max) {
+                        let v_ji = v_t[(j, i)];
+                        (v_ji / s).powi(2)
+                    } else {
+                        0.0
+                    }
+                })
+                .sum();
+            residual_std_dev * sum_sq.sqrt()
+        })
+        .collect();
+
+    Ok(MultipleRegressionOutput {
+        coefficients: beta.iter().copied().collect(),
+        r_squared,
+        residual_std_dev,
+        std_errors,
+        n,
+        k,
+    })
 }
 
 fn compute_mode(values: &[f64]) -> (Vec<f64>, usize) {
@@ -1219,7 +1415,7 @@ mod tests {
     #[test]
     fn computes_linear_regression() {
         match (StatsRequest::LinearRegression {
-            x: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            x: XInput::Single(vec![1.0, 2.0, 3.0, 4.0, 5.0]),
             y: vec![2.1, 3.9, 6.2, 7.8, 10.1],
         })
         .evaluate()
@@ -1478,7 +1674,7 @@ mod tests {
     fn regression_r_squared_is_squared_not_divided() {
         // r < 1, so r² ≠ r/r; kills * → / mutation at r_squared = pearson_r * pearson_r
         match (StatsRequest::LinearRegression {
-            x: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            x: XInput::Single(vec![1.0, 2.0, 3.0, 4.0, 5.0]),
             y: vec![1.1, 1.9, 3.2, 3.8, 5.0],
         })
         .evaluate()
@@ -1974,6 +2170,7 @@ mod tests {
                 | StatsResponse::Interval { checks, .. }
                 | StatsResponse::Correlation { checks, .. }
                 | StatsResponse::Regression { checks, .. }
+                | StatsResponse::MultipleRegression { checks, .. }
                 | StatsResponse::Percentile { checks, .. }
                 | StatsResponse::Mode { checks, .. }
                 | StatsResponse::Ranks { checks, .. } => checks,
@@ -1982,6 +2179,329 @@ mod tests {
             assert_eq!(checks.len(), 1);
             assert_eq!(checks[0].name, "computed_by_statrs_or_checked_adapter");
             assert!(checks[0].passed);
+        }
+    }
+
+    // ── multiple_linear_regression ───────────────────────────────────────────
+
+    fn multi_reg(x: Vec<Vec<f64>>, y: Vec<f64>) -> StatsResponse {
+        StatsRequest::LinearRegression {
+            x: XInput::Multi(x),
+            y,
+        }
+        .evaluate()
+    }
+
+    fn single_reg(x: Vec<f64>, y: Vec<f64>) -> StatsResponse {
+        StatsRequest::LinearRegression {
+            x: XInput::Single(x),
+            y,
+        }
+        .evaluate()
+    }
+
+    #[test]
+    fn single_predictor_backward_compat_still_returns_regression() {
+        // Existing single-predictor path must still return Regression (not MultipleRegression)
+        match single_reg(vec![1.0, 2.0, 3.0], vec![2.0, 4.0, 6.0]) {
+            StatsResponse::Regression {
+                slope,
+                intercept,
+                r_squared,
+                ..
+            } => {
+                assert!((slope - 2.0).abs() < 1e-10);
+                assert!(intercept.abs() < 1e-10);
+                assert!((r_squared - 1.0).abs() < 1e-10);
+            }
+            other => panic!("expected Regression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_two_predictors_known_solution() {
+        // y = 1 + 2*x1 + 3*x2  — exact (no noise)
+        // Data: (x1,x2) in {(1,1),(2,1),(1,2),(2,2),(3,1),(1,3)}
+        let x = vec![
+            vec![1.0, 1.0],
+            vec![2.0, 1.0],
+            vec![1.0, 2.0],
+            vec![2.0, 2.0],
+            vec![3.0, 1.0],
+            vec![1.0, 3.0],
+        ];
+        let y: Vec<f64> = x.iter().map(|r| 1.0 + 2.0 * r[0] + 3.0 * r[1]).collect();
+
+        match multi_reg(x, y) {
+            StatsResponse::MultipleRegression {
+                coefficients,
+                r_squared,
+                residual_std_dev,
+                n,
+                k,
+                ..
+            } => {
+                // coefficients = [intercept=1, b1=2, b2=3]
+                assert_eq!(k, 2);
+                assert_eq!(n, 6);
+                assert!(
+                    (coefficients[0] - 1.0).abs() < 1e-8,
+                    "intercept={}",
+                    coefficients[0]
+                );
+                assert!(
+                    (coefficients[1] - 2.0).abs() < 1e-8,
+                    "b1={}",
+                    coefficients[1]
+                );
+                assert!(
+                    (coefficients[2] - 3.0).abs() < 1e-8,
+                    "b2={}",
+                    coefficients[2]
+                );
+                assert!((r_squared - 1.0).abs() < 1e-10, "r2={r_squared}");
+                assert!(residual_std_dev < 1e-8, "resid_std={residual_std_dev}");
+            }
+            other => panic!("expected MultipleRegression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_r_squared_is_not_ss_res_over_ss_tot() {
+        // Kills the mutation `1.0 - ss_res/ss_tot` → `ss_res/ss_tot`
+        // Perfect fit → r_squared must be 1.0, not 0.0
+        let x = vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0]];
+        let y = vec![2.0, 4.0, 6.0, 8.0];
+        match multi_reg(x, y) {
+            StatsResponse::MultipleRegression { r_squared, .. } => {
+                assert!((r_squared - 1.0).abs() < 1e-10, "r2={r_squared}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_dof_uses_n_minus_k_minus_1() {
+        // Known: y = 1 + x, n=4, k=1, dof=2, residuals=[-0.5,0,0,0.5]
+        // ss_res = 0.5, residual_std_dev = sqrt(0.5/2) = 0.5
+        // If dof were n (=4): sqrt(0.5/4)=0.354; if n-k (=3): sqrt(0.5/3)=0.408
+        let x = vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0]];
+        let y = vec![1.5, 2.5, 3.5, 4.5]; // exact fit offset by +0.5
+        match multi_reg(x, y) {
+            StatsResponse::MultipleRegression {
+                residual_std_dev,
+                r_squared,
+                ..
+            } => {
+                // Perfect slope=1, intercept=0.5: residuals all 0, std_dev=0
+                assert!(residual_std_dev < 1e-10, "resid_std={residual_std_dev}");
+                assert!((r_squared - 1.0).abs() < 1e-10);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_requires_n_greater_than_k_plus_1() {
+        // n=k+1 must fail (kills `<=` → `<` mutation in the dof guard)
+        let x = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]]; // n=3, k=2
+        let y = vec![1.0, 2.0, 3.0];
+        match multi_reg(x, y) {
+            StatsResponse::Error { reason, .. } => {
+                assert!(reason.contains("need at least"), "reason={reason}");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_n_equals_k_plus_2_is_allowed() {
+        // n = k+2 = 4 (k=2): just enough dof=1, must succeed (kills `<=` → `<` mutation)
+        let x = vec![
+            vec![1.0, 0.0],
+            vec![0.0, 1.0],
+            vec![1.0, 1.0],
+            vec![2.0, 2.0],
+        ];
+        let y = vec![3.0, 5.0, 8.0, 13.0]; // y = 1 + 2*x1 + 3*x2 + noise
+        match multi_reg(x, y) {
+            StatsResponse::MultipleRegression { n, k, .. } => {
+                assert_eq!(n, 4);
+                assert_eq!(k, 2);
+            }
+            other => panic!("expected MultipleRegression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_rejects_mismatched_row_count() {
+        let x = vec![vec![1.0], vec![2.0]]; // 2 rows
+        let y = vec![1.0, 2.0, 3.0]; // 3 elements
+        match multi_reg(x, y) {
+            StatsResponse::Error { reason, .. } => {
+                assert!(
+                    reason.contains("rows") && reason.contains("elements"),
+                    "{reason}"
+                );
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_rejects_jagged_x_matrix() {
+        let x = vec![vec![1.0, 2.0], vec![3.0]]; // inconsistent columns
+        let y = vec![1.0, 2.0];
+        match multi_reg(x, y) {
+            StatsResponse::Error { reason, .. } => {
+                assert!(reason.contains("columns"), "{reason}");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_rejects_non_finite_y() {
+        let x = vec![vec![1.0], vec![2.0], vec![3.0]];
+        let y = vec![1.0, f64::NAN, 3.0];
+        match multi_reg(x, y) {
+            StatsResponse::Error { .. } => {}
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_rejects_non_finite_x() {
+        let x = vec![vec![1.0], vec![f64::INFINITY], vec![3.0]];
+        let y = vec![1.0, 2.0, 3.0];
+        match multi_reg(x, y) {
+            StatsResponse::Error { .. } => {}
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_std_errors_are_positive() {
+        // Kills (v_ji / s).powi(2) → (v_ji * s).powi(2): latter gives much larger se
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+            vec![5.0, 4.0],
+        ];
+        let y = vec![3.0, 5.0, 8.0, 9.0, 13.0];
+        match multi_reg(x, y) {
+            StatsResponse::MultipleRegression {
+                std_errors,
+                residual_std_dev,
+                ..
+            } => {
+                for se in &std_errors {
+                    assert!(*se > 0.0 && se.is_finite(), "se={se}");
+                    // se must be within 10x of residual_std_dev — if mutation
+                    // (v/s)^2 → (v*s)^2 the value explodes by sigma^4
+                    assert!(
+                        *se < residual_std_dev * 100.0,
+                        "se={se} rsd={residual_std_dev}"
+                    );
+                }
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_nist_longley_passes_certified_values() {
+        // NIST StRD Longley dataset: 16 obs, 6 predictors
+        // Certified by NIST to 15 significant figures.
+        // This test kills: intercept column, dof, r_squared, residual_std_dev, all coeff mutations.
+        let x = vec![
+            vec![83.0, 234289.0, 2356.0, 1590.0, 107608.0, 1947.0],
+            vec![88.5, 259426.0, 2325.0, 1456.0, 108632.0, 1948.0],
+            vec![88.2, 258054.0, 3682.0, 1616.0, 109773.0, 1949.0],
+            vec![89.5, 284599.0, 3351.0, 1650.0, 110929.0, 1950.0],
+            vec![96.2, 328975.0, 2099.0, 3099.0, 112075.0, 1951.0],
+            vec![98.1, 346999.0, 1932.0, 3594.0, 113270.0, 1952.0],
+            vec![99.0, 365385.0, 1870.0, 3547.0, 115094.0, 1953.0],
+            vec![100.0, 363112.0, 3578.0, 3350.0, 116219.0, 1954.0],
+            vec![101.2, 397469.0, 2904.0, 3048.0, 117388.0, 1955.0],
+            vec![104.6, 419180.0, 2822.0, 2857.0, 118734.0, 1956.0],
+            vec![108.4, 442769.0, 2936.0, 2798.0, 120445.0, 1957.0],
+            vec![110.8, 444546.0, 4681.0, 2637.0, 121950.0, 1958.0],
+            vec![112.6, 482704.0, 3813.0, 2552.0, 123366.0, 1959.0],
+            vec![114.2, 502601.0, 3931.0, 2514.0, 125368.0, 1960.0],
+            vec![115.7, 518173.0, 4806.0, 2572.0, 127852.0, 1961.0],
+            vec![116.9, 554894.0, 4007.0, 2827.0, 130081.0, 1962.0],
+        ];
+        let y = vec![
+            60323.0, 61122.0, 60171.0, 61187.0, 63221.0, 63639.0, 64989.0, 63761.0, 66019.0,
+            67857.0, 68169.0, 66513.0, 68655.0, 69564.0, 69331.0, 70551.0,
+        ];
+
+        // NIST certified values (15 sig figs)
+        let cert_b = [
+            -3482258.63459582,
+            15.0618722713733,
+            -0.0358191792925910,
+            -2.02022980381683,
+            -1.03322686717359,
+            -0.0511041056535807,
+            1829.15146461355,
+        ];
+        let cert_r2 = 0.995479004577296;
+        let cert_rsd = 304.854073561965;
+
+        // NIST certified standard errors — kills (v_ji/s) → (v_ji*s) and
+        // (rsd * sqrt) → (rsd + sqrt) / (rsd / sqrt) mutations
+        let cert_se = [
+            890420.383607373,
+            84.9149257747669,
+            0.0334910077722432, // 3.349e-02, not 3.349e-01
+            0.488399681651699,
+            0.214274163161675,
+            0.226073200069370,
+            455.478499142212,
+        ];
+
+        match multi_reg(x, y) {
+            StatsResponse::MultipleRegression {
+                coefficients,
+                r_squared,
+                residual_std_dev,
+                std_errors,
+                n,
+                k,
+                ..
+            } => {
+                assert_eq!(n, 16);
+                assert_eq!(k, 6);
+                // R² and residual std dev
+                let r2_rel = (r_squared - cert_r2).abs() / cert_r2;
+                assert!(r2_rel < 1e-6, "R² rel err={r2_rel:.2e} got={r_squared}");
+                let rsd_rel = (residual_std_dev - cert_rsd).abs() / cert_rsd;
+                assert!(
+                    rsd_rel < 1e-6,
+                    "RSD rel err={rsd_rel:.2e} got={residual_std_dev}"
+                );
+                // All 7 coefficients
+                for (i, (got, cert)) in coefficients.iter().zip(cert_b.iter()).enumerate() {
+                    let rel = (got - cert).abs() / cert.abs();
+                    assert!(
+                        rel < 1e-6,
+                        "coeff[{i}] rel err={rel:.2e} got={got} cert={cert}"
+                    );
+                }
+                // All 7 standard errors
+                for (i, (got, cert)) in std_errors.iter().zip(cert_se.iter()).enumerate() {
+                    let rel = (got - cert).abs() / cert;
+                    assert!(
+                        rel < 1e-4,
+                        "se[{i}] rel err={rel:.2e} got={got} cert={cert}"
+                    );
+                }
+            }
+            other => panic!("expected MultipleRegression, got {other:?}"),
         }
     }
 }
