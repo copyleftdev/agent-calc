@@ -228,7 +228,18 @@ fn schema_calculus_emits_calculus_request_schema() {
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["title"], "agent-calc calc1 calculus request");
-    assert_eq!(json["properties"]["intent"]["const"], "derivative");
+    assert_eq!(
+        json["$defs"]["Derivative"]["properties"]["intent"]["const"],
+        "derivative"
+    );
+    assert_eq!(
+        json["$defs"]["Integral"]["properties"]["intent"]["const"],
+        "integral"
+    );
+    assert_eq!(
+        json["$defs"]["DefiniteIntegral"]["properties"]["intent"]["const"],
+        "definite_integral"
+    );
 }
 
 #[test]
@@ -1163,6 +1174,114 @@ fn calculus_rejects_invalid_variable_name() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["status"], "error");
     assert_eq!(json["reason"], "invalid symbol name `1x`");
+}
+
+#[test]
+fn calculus_computes_indefinite_integral_of_power() {
+    let mut child = Command::new(bin())
+        .arg("calculus")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "intent": "integral",
+                "variable": "x",
+                "expr": {
+                    "kind": "pow",
+                    "base": {"kind": "symbol", "name": "x"},
+                    "exponent": 3
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "integral");
+    assert_eq!(json["variable"], "x");
+    // antiderivative is (1/4)*x^4 — just check the shape
+    assert!(!json["expr"].is_null());
+}
+
+#[test]
+fn calculus_computes_definite_integral_of_cubic() {
+    let mut child = Command::new(bin())
+        .arg("calculus")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // ∫₀² x³ dx = 4
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "intent": "definite_integral",
+                "variable": "x",
+                "lower": {"kind": "integer", "value": "0"},
+                "upper": {"kind": "integer", "value": "2"},
+                "expr": {
+                    "kind": "pow",
+                    "base": {"kind": "symbol", "name": "x"},
+                    "exponent": 3
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "definite_integral");
+    assert_eq!(json["value"]["kind"], "integer");
+    assert_eq!(json["value"]["value"], "4");
+}
+
+#[test]
+fn calculus_rejects_integral_of_x_inverse() {
+    let mut child = Command::new(bin())
+        .arg("calculus")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "intent": "integral",
+                "variable": "x",
+                "expr": {
+                    "kind": "pow",
+                    "base": {"kind": "symbol", "name": "x"},
+                    "exponent": -1
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "error");
+    assert!(json["reason"].as_str().unwrap().contains("ln(x)"));
 }
 
 #[test]

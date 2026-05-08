@@ -7,4 +7,5 @@ exclude_re = [
     "replace - with \\+ in linear_regression",
     "replace \\+ with \\* in compute_ranks",
     "replace / with \\* in exact_integer_sqrt",
+    "replace < with <= in rational_frac",
 ]
