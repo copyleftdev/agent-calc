@@ -17,6 +17,19 @@ pub enum XInput {
     Multi(Vec<Vec<f64>>),
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tail {
+    #[default]
+    Two,
+    Left,
+    Right,
+}
+
+fn default_alpha() -> f64 {
+    0.05
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
 pub enum StatsRequest {
@@ -120,6 +133,43 @@ pub enum StatsRequest {
         values: Vec<f64>,
         method: RankMethod,
     },
+    OneSampleT {
+        sample: Vec<f64>,
+        mu0: f64,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default)]
+        tail: Tail,
+    },
+    TwoSampleT {
+        sample1: Vec<f64>,
+        sample2: Vec<f64>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default)]
+        tail: Tail,
+        #[serde(default)]
+        equal_var: bool,
+    },
+    PairedT {
+        before: Vec<f64>,
+        after: Vec<f64>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default)]
+        tail: Tail,
+    },
+    ChiSquareGof {
+        observed: Vec<f64>,
+        expected: Vec<f64>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+    },
+    OneWayAnova {
+        groups: Vec<Vec<f64>>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -217,6 +267,19 @@ pub enum StatsResponse {
     Ranks {
         contract_version: String,
         ranks: Vec<f64>,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    HypothesisTest {
+        contract_version: String,
+        test: String,
+        statistic: f64,
+        p_value: f64,
+        dof: f64,
+        critical_value: f64,
+        alpha: f64,
+        reject_h0: bool,
+        conclusion: String,
         exactness: StatsExactness,
         checks: Vec<StatsCheck>,
     },
@@ -342,6 +405,28 @@ impl StatsRequest {
             Ok(StatsOutput::RanksResult(ranks)) => StatsResponse::Ranks {
                 contract_version: CONTRACT_VERSION.to_owned(),
                 ranks,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::HypothesisTestResult {
+                test,
+                statistic,
+                p_value,
+                dof,
+                critical_value,
+                alpha,
+                reject_h0,
+                conclusion,
+            }) => StatsResponse::HypothesisTest {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                test: test.to_owned(),
+                statistic,
+                p_value,
+                dof,
+                critical_value,
+                alpha,
+                reject_h0,
+                conclusion,
                 exactness: StatsExactness::ApproximateF64,
                 checks: default_checks(),
             },
@@ -556,6 +641,41 @@ impl StatsRequest {
                 }
                 Ok(StatsOutput::RanksResult(compute_ranks(values, *method)))
             }
+            StatsRequest::OneSampleT {
+                sample,
+                mu0,
+                alpha,
+                tail,
+            } => one_sample_t_test(sample, *mu0, *alpha, *tail, "OneSampleT"),
+            StatsRequest::TwoSampleT {
+                sample1,
+                sample2,
+                alpha,
+                tail,
+                equal_var,
+            } => two_sample_t_test(sample1, sample2, *alpha, *tail, *equal_var),
+            StatsRequest::PairedT {
+                before,
+                after,
+                alpha,
+                tail,
+            } => {
+                if before.len() != after.len() {
+                    return Err("before and after must have the same length".to_owned());
+                }
+                let diffs: Vec<f64> = before
+                    .iter()
+                    .zip(after.iter())
+                    .map(|(b, a)| a - b)
+                    .collect();
+                one_sample_t_test(&diffs, 0.0, *alpha, *tail, "PairedT")
+            }
+            StatsRequest::ChiSquareGof {
+                observed,
+                expected,
+                alpha,
+            } => chi_square_gof_test(observed, expected, *alpha),
+            StatsRequest::OneWayAnova { groups, alpha } => one_way_anova_test(groups, *alpha),
         }
     }
 }
@@ -591,7 +711,12 @@ pub fn stats_schema_json() -> Value {
             {"$ref": "#/$defs/LinearRegression"},
             {"$ref": "#/$defs/Percentile"},
             {"$ref": "#/$defs/Mode"},
-            {"$ref": "#/$defs/Rank"}
+            {"$ref": "#/$defs/Rank"},
+            {"$ref": "#/$defs/OneSampleT"},
+            {"$ref": "#/$defs/TwoSampleT"},
+            {"$ref": "#/$defs/PairedT"},
+            {"$ref": "#/$defs/ChiSquareGof"},
+            {"$ref": "#/$defs/OneWayAnova"}
         ],
         "$defs": {
             "Sample": {
@@ -844,6 +969,69 @@ pub fn stats_schema_json() -> Value {
                     "values": {"$ref": "#/$defs/Sample"},
                     "method": {"type": "string", "enum": ["average", "min", "max", "first", "last"]}
                 }
+            },
+            "OneSampleT": {
+                "type": "object",
+                "required": ["intent", "sample", "mu0"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "one_sample_t"},
+                    "sample": {"$ref": "#/$defs/Sample"},
+                    "mu0": {"type": "number"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05},
+                    "tail": {"type": "string", "enum": ["two", "left", "right"], "default": "two"}
+                }
+            },
+            "TwoSampleT": {
+                "type": "object",
+                "required": ["intent", "sample1", "sample2"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "two_sample_t"},
+                    "sample1": {"$ref": "#/$defs/Sample"},
+                    "sample2": {"$ref": "#/$defs/Sample"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05},
+                    "tail": {"type": "string", "enum": ["two", "left", "right"], "default": "two"},
+                    "equal_var": {"type": "boolean", "default": false}
+                }
+            },
+            "PairedT": {
+                "type": "object",
+                "required": ["intent", "before", "after"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "paired_t"},
+                    "before": {"$ref": "#/$defs/Sample"},
+                    "after": {"$ref": "#/$defs/Sample"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05},
+                    "tail": {"type": "string", "enum": ["two", "left", "right"], "default": "two"}
+                }
+            },
+            "ChiSquareGof": {
+                "type": "object",
+                "required": ["intent", "observed", "expected"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "chi_square_gof"},
+                    "observed": {"$ref": "#/$defs/Sample"},
+                    "expected": {"$ref": "#/$defs/Sample"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05}
+                }
+            },
+            "OneWayAnova": {
+                "type": "object",
+                "required": ["intent", "groups"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "one_way_anova"},
+                    "groups": {
+                        "type": "array",
+                        "items": {"$ref": "#/$defs/Sample"},
+                        "minItems": 2,
+                        "description": "k groups, each a non-empty array of observations"
+                    },
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05}
+                }
             }
         }
     })
@@ -901,6 +1089,16 @@ enum StatsOutput {
         frequency: usize,
     },
     RanksResult(Vec<f64>),
+    HypothesisTestResult {
+        test: &'static str,
+        statistic: f64,
+        p_value: f64,
+        dof: f64,
+        critical_value: f64,
+        alpha: f64,
+        reject_h0: bool,
+        conclusion: String,
+    },
 }
 
 fn describe_sample(values: &[f64]) -> Result<SampleSummary, String> {
@@ -1203,6 +1401,217 @@ fn compute_ranks(values: &[f64], method: RankMethod) -> Vec<f64> {
         i = j;
     }
     ranks
+}
+
+fn t_p_value(t_dist: &StudentsT, t_stat: f64, tail: Tail) -> f64 {
+    match tail {
+        Tail::Two => 2.0 * (1.0 - t_dist.cdf(t_stat.abs())),
+        Tail::Left => t_dist.cdf(t_stat),
+        Tail::Right => 1.0 - t_dist.cdf(t_stat),
+    }
+}
+
+fn t_critical(t_dist: &StudentsT, alpha: f64, tail: Tail) -> f64 {
+    match tail {
+        Tail::Two => t_dist.inverse_cdf(1.0 - alpha / 2.0),
+        Tail::Left => -t_dist.inverse_cdf(1.0 - alpha),
+        Tail::Right => t_dist.inverse_cdf(1.0 - alpha),
+    }
+}
+
+fn hypothesis_conclusion(p_value: f64, alpha: f64, reject_h0: bool) -> String {
+    if reject_h0 {
+        format!("Reject H0 at alpha={alpha} (p={p_value:.4} < {alpha})")
+    } else {
+        format!("Fail to reject H0 at alpha={alpha} (p={p_value:.4} >= {alpha})")
+    }
+}
+
+fn one_sample_t_test(
+    sample: &[f64],
+    mu0: f64,
+    alpha: f64,
+    tail: Tail,
+    test_name: &'static str,
+) -> Result<StatsOutput, String> {
+    if sample.len() < 2 {
+        return Err("sample must contain at least 2 values".to_owned());
+    }
+    if !sample.iter().all(|v| v.is_finite()) {
+        return Err("sample values must be finite".to_owned());
+    }
+    ensure_finite(mu0, "mu0")?;
+    let n = sample.len();
+    let mean = sample.iter().sum::<f64>() / n as f64;
+    let var: f64 = sample.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let s = var.sqrt();
+    if s == 0.0 {
+        return Err("sample has zero variance — t-test is undefined".to_owned());
+    }
+    let t_stat = (mean - mu0) / (s / (n as f64).sqrt());
+    let dof = (n - 1) as f64;
+    let t_dist = StudentsT::new(0.0, 1.0, dof).map_err(|e| e.to_string())?;
+    let p_value = t_p_value(&t_dist, t_stat, tail);
+    let critical_value = t_critical(&t_dist, alpha, tail);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: test_name,
+        statistic: t_stat,
+        p_value,
+        dof,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
+    })
+}
+
+fn two_sample_t_test(
+    sample1: &[f64],
+    sample2: &[f64],
+    alpha: f64,
+    tail: Tail,
+    equal_var: bool,
+) -> Result<StatsOutput, String> {
+    for (s, name) in [(sample1, "sample1"), (sample2, "sample2")] {
+        if s.len() < 2 {
+            return Err(format!("{name} must contain at least 2 values"));
+        }
+        if !s.iter().all(|v| v.is_finite()) {
+            return Err(format!("{name} values must be finite"));
+        }
+    }
+    let n1 = sample1.len() as f64;
+    let n2 = sample2.len() as f64;
+    let mean1 = sample1.iter().sum::<f64>() / n1;
+    let mean2 = sample2.iter().sum::<f64>() / n2;
+    let var1: f64 = sample1.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0);
+    let var2: f64 = sample2.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0);
+
+    let (t_stat, dof) = if equal_var {
+        let sp2 = ((n1 - 1.0) * var1 + (n2 - 1.0) * var2) / (n1 + n2 - 2.0);
+        let sp = sp2.sqrt();
+        if sp == 0.0 {
+            return Err("samples have zero pooled variance — t-test is undefined".to_owned());
+        }
+        let t = (mean1 - mean2) / (sp * (1.0 / n1 + 1.0 / n2).sqrt());
+        (t, n1 + n2 - 2.0)
+    } else {
+        let v1n = var1 / n1;
+        let v2n = var2 / n2;
+        let se = (v1n + v2n).sqrt();
+        if se == 0.0 {
+            return Err("samples have zero variance — t-test is undefined".to_owned());
+        }
+        let t = (mean1 - mean2) / se;
+        let dof = (v1n + v2n).powi(2) / (v1n.powi(2) / (n1 - 1.0) + v2n.powi(2) / (n2 - 1.0));
+        (t, dof)
+    };
+
+    let t_dist = StudentsT::new(0.0, 1.0, dof).map_err(|e| e.to_string())?;
+    let p_value = t_p_value(&t_dist, t_stat, tail);
+    let critical_value = t_critical(&t_dist, alpha, tail);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: "TwoSampleT",
+        statistic: t_stat,
+        p_value,
+        dof,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
+    })
+}
+
+fn chi_square_gof_test(
+    observed: &[f64],
+    expected: &[f64],
+    alpha: f64,
+) -> Result<StatsOutput, String> {
+    if observed.len() != expected.len() {
+        return Err("observed and expected must have the same length".to_owned());
+    }
+    if observed.len() < 2 {
+        return Err("chi_square_gof requires at least 2 categories".to_owned());
+    }
+    if !observed.iter().all(|v| v.is_finite() && *v >= 0.0) {
+        return Err("observed values must be finite and non-negative".to_owned());
+    }
+    if !expected.iter().all(|v| v.is_finite() && *v > 0.0) {
+        return Err("expected values must be finite and positive".to_owned());
+    }
+    let chi2: f64 = observed
+        .iter()
+        .zip(expected.iter())
+        .map(|(o, e)| (o - e).powi(2) / e)
+        .sum();
+    let dof = (observed.len() - 1) as f64;
+    let chi2_dist = ChiSquared::new(dof).map_err(|e| e.to_string())?;
+    let p_value = 1.0 - chi2_dist.cdf(chi2);
+    let critical_value = chi2_dist.inverse_cdf(1.0 - alpha);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: "ChiSquareGof",
+        statistic: chi2,
+        p_value,
+        dof,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
+    })
+}
+
+fn one_way_anova_test(groups: &[Vec<f64>], alpha: f64) -> Result<StatsOutput, String> {
+    if groups.len() < 2 {
+        return Err("one_way_anova requires at least 2 groups".to_owned());
+    }
+    for (i, g) in groups.iter().enumerate() {
+        if g.len() < 2 {
+            return Err(format!("group {i} must contain at least 2 values"));
+        }
+        if !g.iter().all(|v| v.is_finite()) {
+            return Err(format!("group {i} values must be finite"));
+        }
+    }
+    let n_total: usize = groups.iter().map(|g| g.len()).sum();
+    let grand_mean: f64 = groups.iter().flat_map(|g| g.iter()).sum::<f64>() / n_total as f64;
+
+    let mut ss_between = 0.0f64;
+    let mut ss_within = 0.0f64;
+    for g in groups {
+        let n_k = g.len() as f64;
+        let mean_k = g.iter().sum::<f64>() / n_k;
+        ss_between += n_k * (mean_k - grand_mean).powi(2);
+        ss_within += g.iter().map(|x| (x - mean_k).powi(2)).sum::<f64>();
+    }
+
+    let df_between = (groups.len() - 1) as f64;
+    let df_within = (n_total - groups.len()) as f64;
+
+    if ss_within == 0.0 {
+        return Err("all groups have zero within-group variance — ANOVA is undefined".to_owned());
+    }
+    let f_stat = (ss_between / df_between) / (ss_within / df_within);
+    let f_dist = FisherSnedecor::new(df_between, df_within).map_err(|e| e.to_string())?;
+    let p_value = 1.0 - f_dist.cdf(f_stat);
+    let critical_value = f_dist.inverse_cdf(1.0 - alpha);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: "OneWayAnova",
+        statistic: f_stat,
+        p_value,
+        dof: df_between,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
+    })
 }
 
 fn normal(mean: f64, std_dev: f64) -> Result<Normal, String> {
@@ -2173,7 +2582,8 @@ mod tests {
                 | StatsResponse::MultipleRegression { checks, .. }
                 | StatsResponse::Percentile { checks, .. }
                 | StatsResponse::Mode { checks, .. }
-                | StatsResponse::Ranks { checks, .. } => checks,
+                | StatsResponse::Ranks { checks, .. }
+                | StatsResponse::HypothesisTest { checks, .. } => checks,
                 other => panic!("expected successful response, got {other:?}"),
             };
             assert_eq!(checks.len(), 1);
@@ -2503,5 +2913,442 @@ mod tests {
             }
             other => panic!("expected MultipleRegression, got {other:?}"),
         }
+    }
+
+    // ── hypothesis testing helpers ────────────────────────────────────────────
+
+    fn ht(response: StatsResponse) -> (f64, f64, f64, bool) {
+        match response {
+            StatsResponse::HypothesisTest {
+                statistic,
+                p_value,
+                dof,
+                reject_h0,
+                ..
+            } => (statistic, p_value, dof, reject_h0),
+            other => panic!("expected HypothesisTest, got {other:?}"),
+        }
+    }
+
+    // ── one-sample t ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn one_sample_t_statistic_exact() {
+        // sample=[1,2,3,4,5]: mean=3, var=2.5, s=sqrt(2.5), se=sqrt(0.5)
+        // t = 3/sqrt(0.5) = 3*sqrt(2) = 4.24264..., dof=4
+        let req = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        let (stat, p, dof, reject) = ht(req.evaluate());
+        assert!((stat - 3.0 * 2.0f64.sqrt()).abs() < 1e-10, "t={stat}");
+        assert_eq!(dof, 4.0);
+        assert!(p > 0.0 && p < 0.05, "p={p}");
+        assert!(reject, "should reject H0 (mu=0) when mean=3, se=0.707");
+    }
+
+    #[test]
+    fn one_sample_t_mu0_equals_mean_gives_zero_stat() {
+        // When mu0 == sample mean, t = 0, p = 1.0, fail to reject
+        let req = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 3.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        let (stat, p, _dof, reject) = ht(req.evaluate());
+        assert!(stat.abs() < 1e-12, "t should be 0, got {stat}");
+        assert!((p - 1.0).abs() < 1e-10, "p should be 1.0, got {p}");
+        assert!(!reject, "should not reject when t=0");
+    }
+
+    #[test]
+    fn one_sample_t_negative_stat_two_tail_p_equals_positive() {
+        // Kills: replace abs() with identity — negative t would give wrong p
+        let pos = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 0.0, // mean=3 > mu0 → positive t
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        let neg = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 6.0, // mean=3 < mu0 → negative t
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        let (t_pos, p_pos, _, _) = ht(pos.evaluate());
+        let (t_neg, p_neg, _, _) = ht(neg.evaluate());
+        assert!(t_pos > 0.0 && t_neg < 0.0);
+        assert!(
+            (p_pos - p_neg).abs() < 1e-10,
+            "two-tailed p must be symmetric"
+        );
+        assert!(p_pos <= 1.0 && p_neg <= 1.0, "p must be <= 1");
+    }
+
+    #[test]
+    fn one_sample_t_dof_is_n_minus_1() {
+        // dof = n-1; kills replace (n-1) with n
+        let req = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            mu0: 4.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        let (_, _, dof, _) = ht(req.evaluate());
+        assert_eq!(dof, 6.0); // n=7, dof=6
+    }
+
+    #[test]
+    fn one_sample_t_left_tail_p_smaller_for_negative_t() {
+        // Left-tail: p = CDF(t). For negative t, p < 0.5. Kills tail-branch mutations.
+        let req = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 6.0, // mean=3 < mu0 → negative t
+            alpha: 0.05,
+            tail: Tail::Left,
+        };
+        let (t, p, _, reject) = ht(req.evaluate());
+        assert!(t < 0.0);
+        assert!(p < 0.5, "left-tail p of negative t must be < 0.5, got {p}");
+        assert!(reject, "left-tail test should reject when t << 0");
+    }
+
+    #[test]
+    fn one_sample_t_right_tail_p_smaller_for_positive_t() {
+        // Right-tail: p = 1 - CDF(t). For positive t, p < 0.5. Kills tail-branch mutations.
+        let req = StatsRequest::OneSampleT {
+            sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            mu0: 0.0, // mean=3 > mu0 → positive t
+            alpha: 0.05,
+            tail: Tail::Right,
+        };
+        let (t, p, _, reject) = ht(req.evaluate());
+        assert!(t > 0.0);
+        assert!(p < 0.5, "right-tail p of positive t must be < 0.5, got {p}");
+        assert!(reject);
+    }
+
+    #[test]
+    fn one_sample_t_p_value_in_unit_interval() {
+        // Kills replace 2*(1-CDF) with 2*(1+CDF) or similar
+        for mu0 in [-10.0, 0.0, 3.0, 10.0] {
+            let req = StatsRequest::OneSampleT {
+                sample: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+                mu0,
+                alpha: 0.05,
+                tail: Tail::Two,
+            };
+            let (_, p, _, _) = ht(req.evaluate());
+            assert!((0.0..=1.0).contains(&p), "mu0={mu0} p={p}");
+        }
+    }
+
+    #[test]
+    fn one_sample_t_requires_n_at_least_2() {
+        let req = StatsRequest::OneSampleT {
+            sample: vec![5.0],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    #[test]
+    fn one_sample_t_rejects_non_finite() {
+        let req = StatsRequest::OneSampleT {
+            sample: vec![1.0, f64::NAN],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    #[test]
+    fn one_sample_t_rejects_zero_variance() {
+        let req = StatsRequest::OneSampleT {
+            sample: vec![3.0, 3.0, 3.0],
+            mu0: 0.0,
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    // ── two-sample t ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn two_sample_welch_statistic_and_dof_exact() {
+        // sample1=[10,12,11,13,9] mean=11, var=2.5
+        // sample2=[8,6,7,9,5]    mean=7,  var=2.5
+        // t = (11-7)/sqrt(2.5/5+2.5/5) = 4/sqrt(1.0) = 4.0
+        // Welch dof = 1.0^2 / (0.5^2/4 + 0.5^2/4) = 1.0 / 0.125 = 8.0
+        let req = StatsRequest::TwoSampleT {
+            sample1: vec![10.0, 12.0, 11.0, 13.0, 9.0],
+            sample2: vec![8.0, 6.0, 7.0, 9.0, 5.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+            equal_var: false,
+        };
+        let (stat, p, dof, reject) = ht(req.evaluate());
+        assert!((stat - 4.0).abs() < 1e-10, "t={stat}");
+        assert!((dof - 8.0).abs() < 1e-10, "dof={dof}");
+        assert!(p < 0.05, "p={p}");
+        assert!(reject);
+    }
+
+    #[test]
+    fn two_sample_pooled_statistic_exact() {
+        // Same data, equal_var=true: sp2 = (4*2.5 + 4*2.5)/8 = 2.5
+        // t = (11-7)/(sqrt(2.5)*sqrt(1/5+1/5)) = 4/(sqrt(2.5)*sqrt(0.4))
+        //   = 4/sqrt(1.0) = 4.0, dof = 5+5-2 = 8
+        let req = StatsRequest::TwoSampleT {
+            sample1: vec![10.0, 12.0, 11.0, 13.0, 9.0],
+            sample2: vec![8.0, 6.0, 7.0, 9.0, 5.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+            equal_var: true,
+        };
+        let (stat, _, dof, _) = ht(req.evaluate());
+        assert!((stat - 4.0).abs() < 1e-10, "t={stat}");
+        assert_eq!(dof, 8.0);
+    }
+
+    #[test]
+    fn two_sample_welch_dof_satterthwaite_formula() {
+        // Unequal n and variance to stress the Welch–Satterthwaite formula:
+        // s1=1 (n1=4), s2=3 (n2=9) → var1=1, var2=9
+        // v1n=1/4=0.25, v2n=9/9=1.0
+        // Welch dof = (0.25+1.0)^2 / (0.25^2/3 + 1.0^2/8) = 1.5625/(0.020833+0.125) ≈ 10.71
+        // sample1: mean=10, sample2: mean=0 → t = 10/sqrt(1.25)
+        let req = StatsRequest::TwoSampleT {
+            sample1: vec![10.0, 12.0, 11.0, 13.0, 9.0],
+            sample2: vec![8.0, 6.0, 7.0, 9.0, 5.0, 7.0, 8.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+            equal_var: false,
+        };
+        let (_, _, dof, _) = ht(req.evaluate());
+        // Pooled dof would be 5+7-2=10; Welch dof must differ
+        assert!(
+            (dof - 10.0).abs() > 0.1,
+            "Welch dof should differ from pooled dof=10, got {dof}"
+        );
+        assert!(dof > 0.0 && dof < 20.0);
+    }
+
+    // ── paired t ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn paired_t_statistic_exact() {
+        // before=[10,8,7,6,9], after=[12,9,9,8,11]
+        // diffs=[2,1,2,2,2], mean=1.8, var=0.2, s=sqrt(0.2)
+        // t = 1.8 / (sqrt(0.2)/sqrt(5)) = 1.8 / sqrt(0.04) = 1.8/0.2 = 9.0
+        // dof = 4
+        let req = StatsRequest::PairedT {
+            before: vec![10.0, 8.0, 7.0, 6.0, 9.0],
+            after: vec![12.0, 9.0, 9.0, 8.0, 11.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        let (stat, p, dof, reject) = ht(req.evaluate());
+        assert!((stat - 9.0).abs() < 1e-10, "t={stat}");
+        assert_eq!(dof, 4.0);
+        assert!(p < 0.01, "p={p}");
+        assert!(reject);
+    }
+
+    #[test]
+    fn paired_t_rejects_length_mismatch() {
+        let req = StatsRequest::PairedT {
+            before: vec![1.0, 2.0],
+            after: vec![1.0],
+            alpha: 0.05,
+            tail: Tail::Two,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    // ── chi-square GoF ────────────────────────────────────────────────────────
+
+    #[test]
+    fn chi_square_gof_statistic_exact() {
+        // observed=[10,20,30], expected=[20,20,20]
+        // chi2 = (10-20)^2/20 + 0 + (30-20)^2/20 = 5 + 0 + 5 = 10.0, dof=2
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 20.0, 30.0],
+            expected: vec![20.0, 20.0, 20.0],
+            alpha: 0.05,
+        };
+        let (stat, p, dof, reject) = ht(req.evaluate());
+        assert!((stat - 10.0).abs() < 1e-10, "chi2={stat}");
+        assert_eq!(dof, 2.0);
+        assert!(p < 0.05, "p={p}");
+        assert!(reject);
+    }
+
+    #[test]
+    fn chi_square_gof_dof_is_k_minus_1() {
+        // Kills replace (len-1) with len in dof
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 10.0, 10.0, 10.0, 10.0],
+            expected: vec![10.0, 10.0, 10.0, 10.0, 10.0],
+            alpha: 0.05,
+        };
+        let (_, _, dof, _) = ht(req.evaluate());
+        assert_eq!(dof, 4.0); // k=5, dof=4
+    }
+
+    #[test]
+    fn chi_square_gof_perfect_fit_fails_to_reject() {
+        // observed == expected → chi2 = 0, p = 1.0
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![25.0, 75.0],
+            expected: vec![25.0, 75.0],
+            alpha: 0.05,
+        };
+        let (stat, p, _, reject) = ht(req.evaluate());
+        assert!(stat.abs() < 1e-12, "chi2={stat}");
+        assert!((p - 1.0).abs() < 1e-6, "p={p}");
+        assert!(!reject);
+    }
+
+    #[test]
+    fn chi_square_gof_p_value_in_unit_interval() {
+        // Kills replace 1.0 - CDF with 1.0 + CDF
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 20.0, 30.0],
+            expected: vec![20.0, 20.0, 20.0],
+            alpha: 0.05,
+        };
+        let (_, p, _, _) = ht(req.evaluate());
+        assert!((0.0..=1.0).contains(&p), "p={p}");
+    }
+
+    #[test]
+    fn chi_square_gof_rejects_length_mismatch() {
+        let req = StatsRequest::ChiSquareGof {
+            observed: vec![10.0, 20.0],
+            expected: vec![15.0],
+            alpha: 0.05,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    // ── one-way ANOVA ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn anova_f_statistic_exact() {
+        // groups: [1,2,3],[4,5,6],[7,8,9]
+        // grand_mean=5, SS_between=3*(2-5)^2+0+3*(8-5)^2=27+27=54, SS_within=2+2+2=6
+        // df_between=2, df_within=6, F=(54/2)/(6/6)=27/1=27.0
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![
+                vec![1.0, 2.0, 3.0],
+                vec![4.0, 5.0, 6.0],
+                vec![7.0, 8.0, 9.0],
+            ],
+            alpha: 0.05,
+        };
+        let (stat, p, dof, reject) = ht(req.evaluate());
+        assert!((stat - 27.0).abs() < 1e-10, "F={stat}");
+        assert_eq!(dof, 2.0); // df_between = k-1 = 2
+        assert!(p < 0.05, "p={p}");
+        assert!(reject);
+    }
+
+    #[test]
+    fn anova_df_between_is_k_minus_1() {
+        // 4 groups → df_between = 3
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![
+                vec![1.0, 2.0],
+                vec![3.0, 4.0],
+                vec![5.0, 6.0],
+                vec![7.0, 8.0],
+            ],
+            alpha: 0.05,
+        };
+        let (_, _, dof, _) = ht(req.evaluate());
+        assert_eq!(dof, 3.0);
+    }
+
+    #[test]
+    fn anova_identical_groups_fails_to_reject() {
+        // All groups identical → large p, no rejection
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![
+                vec![5.0, 5.0, 5.0],
+                vec![5.0, 5.0, 5.0],
+                vec![5.0, 5.0, 5.0],
+            ],
+            alpha: 0.05,
+        };
+        // All between-group variance is 0; this may error (zero ss_within also? no, ss_within=0 too)
+        // Actually ss_within=0 too since all values equal mean. Error branch.
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    #[test]
+    fn anova_p_value_in_unit_interval() {
+        // Kills replace 1.0 - CDF with 1.0 + CDF in one_way_anova_test
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![
+                vec![1.0, 2.0, 3.0],
+                vec![4.0, 5.0, 6.0],
+                vec![7.0, 8.0, 9.0],
+            ],
+            alpha: 0.05,
+        };
+        let (_, p, _, _) = ht(req.evaluate());
+        assert!((0.0..=1.0).contains(&p), "p={p}");
+    }
+
+    #[test]
+    fn anova_f_numerator_denominator_not_swapped() {
+        // F = MS_between/MS_within. If swapped → F = 1/27. Test that F > 1 for spread groups.
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![vec![1.0, 2.0, 3.0], vec![10.0, 11.0, 12.0]],
+            alpha: 0.05,
+        };
+        let (stat, _, _, _) = ht(req.evaluate());
+        assert!(
+            stat > 1.0,
+            "F={stat} should be > 1 for well-separated groups"
+        );
+    }
+
+    #[test]
+    fn anova_grand_mean_formula_correct() {
+        // If grand_mean uses wrong n (e.g. groups.len() instead of n_total),
+        // SS_between would be wrong → F changes. This group has n=[2,4,2] not [2,2,2].
+        // grand_mean = (0+0 + 10+10+10+10 + 20+20) / 8 = 80/8 = 10
+        // mean0=0, mean1=10, mean2=20
+        // SS_between = 2*(0-10)^2 + 4*(10-10)^2 + 2*(20-10)^2 = 200+0+200=400
+        // SS_within = 0
+        // Error: zero within-group variance
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![
+                vec![0.0, 0.0],
+                vec![10.0, 10.0, 10.0, 10.0],
+                vec![20.0, 20.0],
+            ],
+            alpha: 0.05,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
+    }
+
+    #[test]
+    fn anova_requires_at_least_2_groups() {
+        let req = StatsRequest::OneWayAnova {
+            groups: vec![vec![1.0, 2.0, 3.0]],
+            alpha: 0.05,
+        };
+        assert!(matches!(req.evaluate(), StatsResponse::Error { .. }));
     }
 }
