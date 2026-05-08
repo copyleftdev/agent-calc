@@ -268,6 +268,80 @@ update `cli_contract.rs` to assert the new version.
 
 ---
 
+## Issue-driven workflow — how every session starts
+
+At the start of every session, before writing any code, fetch the current open
+issues and propose a work order. Do not assume the issue list from a previous
+session is still current — labels, priorities, and dependencies change.
+
+### Step 1 — fetch and display open issues
+
+```bash
+gh issue list --repo copyleftdev/agent-calc --state open \
+  --json number,title,labels,createdAt \
+  --order created --limit 50
+```
+
+Print the list so the user can see what exists.
+
+### Step 2 — triage into a proposed order
+
+Apply this priority logic and present the ranked list for approval before
+starting:
+
+| Rank | Condition | Reason |
+|---|---|---|
+| 1st | `bug` label | Contract violations block callers right now |
+| 2nd | Schema / API consistency (`fix`) | Inconsistent APIs multiply technical debt across every future feature |
+| 3rd | Foundation issues that unblock others | e.g. transcendental expression nodes (#14) before Black-Scholes or pharmacokinetics |
+| 4th | Features that are self-contained | No dependency on other open issues |
+| 5th | Features with optional dependencies | Can be done independently but pair well with something else |
+
+Within the same rank, prefer issues that:
+- Have smaller scope (fewer new files / types)
+- Affect more professional archetypes (wider utility)
+- Extend an existing module over creating a new one (less wiring)
+
+### Step 3 — get explicit approval before starting
+
+State the proposed order in a short numbered list. Wait for the user to confirm
+or reorder before opening any file.
+
+Example output format:
+
+```
+Open issues (8):
+
+  #17  [bug]         fix(schema): standardize field naming and types
+  #14  [enhancement] feat(eval): transcendental expression nodes
+  #3   [enhancement] feat(units): add pressure, temperature, energy dimensions
+  ...
+
+Proposed order:
+  1. #17 — schema consistency bug (unblocks callers today)
+  2. #14 — transcendental nodes (unblocks options trader, pharmacologist, signal engineer)
+  3. #3  — unit dimensions (structural engineer gap, self-contained uom extension)
+  ...
+
+Proceed in this order, or let me know what to change.
+```
+
+### Step 4 — work one issue at a time
+
+For each issue:
+1. Re-read the issue body before starting (the spec is there, not in memory)
+2. Follow the 10-step new-command checklist if it is a `feat` issue
+3. Run `make ci` before closing the issue
+4. Close the issue via `gh issue close <number> --comment "..."` with a
+   one-line summary of what was done and what commit landed it
+5. Move to the next issue in the approved order
+
+Do not batch multiple issues into one commit unless they are inseparable.
+Each issue gets its own commit with a message referencing the issue number:
+`feat(eval): add sqrt and exp expression nodes — closes #14`
+
+---
+
 ## What Claude should do in this project
 
 - Run `make ci` before reporting a task complete. If it fails, fix it.
