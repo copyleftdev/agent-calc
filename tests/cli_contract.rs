@@ -42,7 +42,20 @@ fn schema_units_emits_unit_request_schema() {
     assert_eq!(json["title"], "agent-calc calc1 units request");
     assert_eq!(
         json["$defs"]["Dimension"]["enum"],
-        serde_json::json!(["length", "mass", "time", "velocity"])
+        serde_json::json!([
+            "length",
+            "mass",
+            "time",
+            "velocity",
+            "pressure",
+            "temperature",
+            "energy",
+            "force",
+            "power",
+            "area",
+            "volume",
+            "frequency"
+        ])
     );
 }
 
@@ -1653,6 +1666,200 @@ fn units_rejects_dimension_mismatch() {
             .unwrap()
             .contains("dimension mismatch")
     );
+}
+
+#[test]
+fn units_converts_pressure_psi_to_mpa() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"pressure","value":45000,"unit":"psi"},"to":"MPa"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    assert_eq!(json["dimension"], "pressure");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 310.264_2).abs() < 0.01, "psi→MPa: {v}");
+}
+
+#[test]
+fn units_converts_temperature_celsius_to_fahrenheit() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"temperature","value":100,"unit":"celsius"},"to":"fahrenheit"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    assert_eq!(json["dimension"], "temperature");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 212.0).abs() < 1e-6, "celsius→fahrenheit: {v}");
+}
+
+#[test]
+fn units_converts_energy_kwh_to_joules() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"energy","value":1,"unit":"kWh"},"to":"J"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 3_600_000.0).abs() < 1.0, "kWh→J: {v}");
+}
+
+#[test]
+fn units_converts_force_lbf_to_newtons() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"force","value":1,"unit":"lbf"},"to":"N"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 4.448_222).abs() < 1e-4, "lbf→N: {v}");
+}
+
+#[test]
+fn units_converts_power_hp_to_kw() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"power","value":1,"unit":"hp"},"to":"kW"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 0.745_699_9).abs() < 1e-4, "hp→kW: {v}");
+}
+
+#[test]
+fn units_converts_area_acre_to_hectare() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"area","value":1,"unit":"acre"},"to":"hectare"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 0.404_687_3).abs() < 1e-4, "acre→hectare: {v}");
+}
+
+#[test]
+fn units_converts_volume_liter_to_gallon() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"volume","value":1,"unit":"L"},"to":"gal"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 0.264_172).abs() < 1e-4, "L→gal: {v}");
+}
+
+#[test]
+fn units_converts_frequency_rpm_to_hz() {
+    let mut child = Command::new(bin())
+        .arg("units")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{"intent":"convert","quantity":{"dimension":"frequency","value":60,"unit":"rpm"},"to":"Hz"}"#,
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    let v = json["value"].as_f64().unwrap();
+    assert!((v - 1.0).abs() < 1e-9, "rpm→Hz: {v}");
 }
 
 #[test]
