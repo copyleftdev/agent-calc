@@ -2132,6 +2132,120 @@ fn matrix_solve_accepts_matrix_input_for_constants() {
 }
 
 #[test]
+fn matrix_inv_returns_inverse() {
+    let input = serde_json::json!({
+        "intent": "inv",
+        "matrix": { "rows": 2, "cols": 2, "data": [4.0, 7.0, 2.0, 6.0] }
+    });
+    let mut child = Command::new(bin())
+        .arg("matrix")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "matrix");
+    assert_eq!(json["rows"], 2);
+    assert_eq!(json["cols"], 2);
+    let data = json["data"].as_array().unwrap();
+    assert!((data[0].as_f64().unwrap() - 0.6).abs() < 1e-10);
+    assert!((data[1].as_f64().unwrap() - (-0.7)).abs() < 1e-10);
+}
+
+#[test]
+fn matrix_inv_singular_returns_error() {
+    let input = serde_json::json!({
+        "intent": "inv",
+        "matrix": { "rows": 2, "cols": 2, "data": [1.0, 2.0, 2.0, 4.0] }
+    });
+    let mut child = Command::new(bin())
+        .arg("matrix")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "error");
+    assert_eq!(json["code"], "singular_matrix");
+}
+
+#[test]
+fn matrix_eigenvalues_returns_sorted_values() {
+    let input = serde_json::json!({
+        "intent": "eigenvalues",
+        "matrix": { "rows": 2, "cols": 2, "data": [2.0, 1.0, 1.0, 2.0] }
+    });
+    let mut child = Command::new(bin())
+        .arg("matrix")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "eigenvalues");
+    assert_eq!(json["exactness"], "approximate_f64");
+    let values = json["values"].as_array().unwrap();
+    assert_eq!(values.len(), 2);
+    assert!((values[0].as_f64().unwrap() - 1.0).abs() < 1e-10);
+    assert!((values[1].as_f64().unwrap() - 3.0).abs() < 1e-10);
+}
+
+#[test]
+fn matrix_lu_returns_l_u_p_factors() {
+    let input = serde_json::json!({
+        "intent": "lu",
+        "matrix": { "rows": 2, "cols": 2, "data": [2.0, 1.0, 4.0, 3.0] }
+    });
+    let mut child = Command::new(bin())
+        .arg("matrix")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "lu");
+    assert_eq!(json["exactness"], "approximate_f64");
+    assert!(json["L"].is_object());
+    assert!(json["U"].is_object());
+    assert!(json["P"].is_object());
+    assert_eq!(json["L"]["rows"], 2);
+    assert_eq!(json["U"]["rows"], 2);
+    assert_eq!(json["P"]["rows"], 2);
+}
+
+#[test]
 fn stats_describe_sample_accepts_data_alias() {
     // Regression: describe_sample only accepted `values`; `data` is now a valid alias.
     let input = serde_json::json!({ "intent": "describe_sample", "data": [1.0, 2.0, 3.0] });

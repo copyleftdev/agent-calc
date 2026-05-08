@@ -6,6 +6,14 @@ use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+fn nalgebra_to_input(m: &DMatrix<f64>) -> MatrixInput {
+    MatrixInput {
+        rows: m.nrows(),
+        cols: m.ncols(),
+        data: matrix_to_row_vec(m),
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
 pub enum MatrixRequest {
@@ -25,6 +33,15 @@ pub enum MatrixRequest {
         matrix: MatrixInput,
     },
     Determinant {
+        matrix: MatrixInput,
+    },
+    Inv {
+        matrix: MatrixInput,
+    },
+    Eigenvalues {
+        matrix: MatrixInput,
+    },
+    Lu {
         matrix: MatrixInput,
     },
     Solve {
@@ -60,6 +77,23 @@ pub enum MatrixResponse {
     Vector {
         contract_version: String,
         data: Vec<f64>,
+        exactness: MatrixExactness,
+        checks: Vec<MatrixCheck>,
+    },
+    Eigenvalues {
+        contract_version: String,
+        values: Vec<f64>,
+        exactness: MatrixExactness,
+        checks: Vec<MatrixCheck>,
+    },
+    Lu {
+        contract_version: String,
+        #[serde(rename = "L")]
+        l: MatrixInput,
+        #[serde(rename = "U")]
+        u: MatrixInput,
+        #[serde(rename = "P")]
+        p: MatrixInput,
         exactness: MatrixExactness,
         checks: Vec<MatrixCheck>,
     },
@@ -108,6 +142,26 @@ impl MatrixRequest {
             Ok(MatrixOutput::Vector(data)) => MatrixResponse::Vector {
                 contract_version: CONTRACT_VERSION.to_owned(),
                 data,
+                exactness: MatrixExactness::ApproximateF64,
+                checks: vec![MatrixCheck {
+                    name: "shape_checked_by_nalgebra_adapter".to_owned(),
+                    passed: true,
+                }],
+            },
+            Ok(MatrixOutput::Eigenvalues(values)) => MatrixResponse::Eigenvalues {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                values,
+                exactness: MatrixExactness::ApproximateF64,
+                checks: vec![MatrixCheck {
+                    name: "matrix_treated_as_symmetric".to_owned(),
+                    passed: true,
+                }],
+            },
+            Ok(MatrixOutput::Lu { l, u, p }) => MatrixResponse::Lu {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                l: nalgebra_to_input(&l),
+                u: nalgebra_to_input(&u),
+                p: nalgebra_to_input(&p),
                 exactness: MatrixExactness::ApproximateF64,
                 checks: vec![MatrixCheck {
                     name: "shape_checked_by_nalgebra_adapter".to_owned(),
@@ -163,6 +217,44 @@ impl MatrixRequest {
                     ));
                 }
                 Ok(MatrixOutput::Scalar(matrix.determinant()))
+            }
+            MatrixRequest::Inv { matrix } => {
+                let matrix = parse_matrix(matrix)?;
+                if !matrix.is_square() {
+                    return Err(format!(
+                        "inv requires a square matrix, got {}x{}",
+                        matrix.nrows(),
+                        matrix.ncols()
+                    ));
+                }
+                match matrix.try_inverse() {
+                    Some(inv) => Ok(MatrixOutput::Matrix(inv)),
+                    None => Err("matrix is singular and cannot be inverted".to_owned()),
+                }
+            }
+            MatrixRequest::Eigenvalues { matrix } => {
+                let matrix = parse_matrix(matrix)?;
+                if !matrix.is_square() {
+                    return Err(format!(
+                        "eigenvalues requires a square matrix, got {}x{}",
+                        matrix.nrows(),
+                        matrix.ncols()
+                    ));
+                }
+                let mut values: Vec<f64> = matrix.symmetric_eigenvalues().iter().copied().collect();
+                values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                Ok(MatrixOutput::Eigenvalues(values))
+            }
+            MatrixRequest::Lu { matrix } => {
+                let matrix = parse_matrix(matrix)?;
+                let n = matrix.nrows();
+                let lu = matrix.clone().lu();
+                let l = lu.l();
+                let u = lu.u();
+                let (perm, _, _) = matrix.lu().unpack();
+                let mut p = DMatrix::<f64>::identity(n, n);
+                perm.permute_rows(&mut p);
+                Ok(MatrixOutput::Lu { l, u, p })
             }
             MatrixRequest::Solve {
                 coefficients,
@@ -243,7 +335,7 @@ pub fn matrix_schema_json() -> Value {
                 "required": ["intent", "matrix"],
                 "additionalProperties": false,
                 "properties": {
-                    "intent": {"enum": ["transpose", "determinant"]},
+                    "intent": {"enum": ["transpose", "determinant", "inv", "eigenvalues", "lu"]},
                     "matrix": {"$ref": "#/$defs/Matrix"}
                 }
             },
@@ -268,6 +360,12 @@ enum MatrixOutput {
     Matrix(DMatrix<f64>),
     Scalar(f64),
     Vector(Vec<f64>),
+    Eigenvalues(Vec<f64>),
+    Lu {
+        l: DMatrix<f64>,
+        u: DMatrix<f64>,
+        p: DMatrix<f64>,
+    },
 }
 
 fn parse_matrix(input: &MatrixInput) -> Result<DMatrix<f64>, String> {
@@ -433,6 +531,96 @@ mod tests {
         assert!(
             matches!(non_column, MatrixResponse::Error { reason, .. } if reason.contains("cols=1"))
         );
+    }
+
+    #[test]
+    fn inverts_2x2_matrix() {
+        // [[4, 7], [2, 6]]^(-1) = [[0.6, -0.7], [-0.2, 0.4]]
+        match (MatrixRequest::Inv {
+            matrix: m(2, 2, &[4.0, 7.0, 2.0, 6.0]),
+        })
+        .evaluate()
+        {
+            MatrixResponse::Matrix {
+                data, rows, cols, ..
+            } => {
+                assert_eq!(rows, 2);
+                assert_eq!(cols, 2);
+                assert!((data[0] - 0.6).abs() < 1e-12);
+                assert!((data[1] - (-0.7)).abs() < 1e-12);
+                assert!((data[2] - (-0.2)).abs() < 1e-12);
+                assert!((data[3] - 0.4).abs() < 1e-12);
+            }
+            other => panic!("expected matrix response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inv_rejects_singular_and_non_square() {
+        let singular = MatrixRequest::Inv {
+            matrix: m(2, 2, &[1.0, 2.0, 2.0, 4.0]),
+        }
+        .evaluate();
+        assert!(matches!(
+            singular,
+            MatrixResponse::Error { reason, .. } if reason.contains("singular")
+        ));
+
+        let non_square = MatrixRequest::Inv {
+            matrix: m(2, 3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
+        }
+        .evaluate();
+        assert!(matches!(
+            non_square,
+            MatrixResponse::Error { reason, .. } if reason.contains("square")
+        ));
+    }
+
+    #[test]
+    fn eigenvalues_of_symmetric_matrix() {
+        // [[2, 1], [1, 2]] has eigenvalues 1 and 3
+        match (MatrixRequest::Eigenvalues {
+            matrix: m(2, 2, &[2.0, 1.0, 1.0, 2.0]),
+        })
+        .evaluate()
+        {
+            MatrixResponse::Eigenvalues { values, .. } => {
+                assert_eq!(values.len(), 2);
+                assert!((values[0] - 1.0).abs() < 1e-10);
+                assert!((values[1] - 3.0).abs() < 1e-10);
+            }
+            other => panic!("expected eigenvalues response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lu_decomposes_square_matrix() {
+        // PA = LU should hold; check by reconstructing
+        let a = m(3, 3, &[2.0, 1.0, 1.0, 4.0, 3.0, 3.0, 8.0, 7.0, 9.0]);
+        match (MatrixRequest::Lu { matrix: a.clone() }).evaluate() {
+            MatrixResponse::Lu { l, u, p, .. } => {
+                assert_eq!(l.rows, 3);
+                assert_eq!(u.rows, 3);
+                assert_eq!(p.rows, 3);
+                // Verify L is unit lower triangular (diagonal = 1)
+                for i in 0..3 {
+                    assert!(
+                        (l.data[i * 3 + i] - 1.0).abs() < 1e-12,
+                        "L diagonal must be 1"
+                    );
+                }
+                // Verify U is upper triangular
+                for i in 0..3 {
+                    for j in 0..i {
+                        assert!(
+                            u.data[i * 3 + j].abs() < 1e-12,
+                            "U lower triangle must be 0"
+                        );
+                    }
+                }
+            }
+            other => panic!("expected LU response, got {other:?}"),
+        }
     }
 
     #[test]

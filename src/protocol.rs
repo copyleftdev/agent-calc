@@ -287,6 +287,7 @@ pub enum ErrorCode {
     InvalidInteger,
     InvalidSymbol,
     ResourceLimit,
+    SingularMatrix,
     UnboundSymbol,
     Unsupported,
 }
@@ -1159,6 +1160,8 @@ pub fn classify_error(reason: &str) -> ErrorCode {
         || reason.contains("overflow")
     {
         ErrorCode::ResourceLimit
+    } else if reason.contains("singular") {
+        ErrorCode::SingularMatrix
     } else if reason.contains("unsupported")
         || reason.contains("not supported")
         || reason.contains("nonlinear")
