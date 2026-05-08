@@ -31,6 +31,21 @@ pub enum PolynomialRequest {
     Solve {
         polynomial: PolynomialInput,
     },
+    Gcd {
+        left: PolynomialInput,
+        right: PolynomialInput,
+    },
+    Lcm {
+        left: PolynomialInput,
+        right: PolynomialInput,
+    },
+    Factor {
+        polynomial: PolynomialInput,
+    },
+    IsolateRoots {
+        polynomial: PolynomialInput,
+        tolerance: Expr,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -59,11 +74,29 @@ pub enum PolynomialResponse {
         roots: Vec<ExactRational>,
         checks: Vec<PolynomialCheck>,
     },
+    Factors {
+        contract_version: String,
+        variable: String,
+        factors: Vec<Vec<ExactRational>>,
+        checks: Vec<PolynomialCheck>,
+    },
+    RootIntervals {
+        contract_version: String,
+        variable: String,
+        intervals: Vec<RootInterval>,
+        checks: Vec<PolynomialCheck>,
+    },
     Error {
         contract_version: String,
         code: ErrorCode,
         reason: String,
     },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RootInterval {
+    pub lower: ExactRational,
+    pub upper: ExactRational,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -94,6 +127,30 @@ impl PolynomialRequest {
                 variable,
                 roots: roots.iter().map(exact_rational).collect(),
                 checks: solve_checks(),
+            },
+            Ok(PolynomialOutput::Factors { variable, factors }) => PolynomialResponse::Factors {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                variable,
+                factors: factors
+                    .iter()
+                    .map(|f| f.iter().map(exact_rational).collect())
+                    .collect(),
+                checks: default_checks(),
+            },
+            Ok(PolynomialOutput::RootIntervals {
+                variable,
+                intervals,
+            }) => PolynomialResponse::RootIntervals {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                variable,
+                intervals: intervals
+                    .into_iter()
+                    .map(|(lo, hi)| RootInterval {
+                        lower: exact_rational(&lo),
+                        upper: exact_rational(&hi),
+                    })
+                    .collect(),
+                checks: default_checks(),
             },
             Err(reason) => PolynomialResponse::Error {
                 contract_version: CONTRACT_VERSION.to_owned(),
@@ -152,6 +209,45 @@ impl PolynomialRequest {
                     roots: solve_coefficients(&polynomial.coefficients)?,
                 })
             }
+            PolynomialRequest::Gcd { left, right } => {
+                let left = Polynomial::parse(left)?;
+                let right = Polynomial::parse(right)?;
+                ensure_same_variable(&left, &right)?;
+                Ok(PolynomialOutput::Polynomial {
+                    variable: left.variable.clone(),
+                    coefficients: poly_gcd(&left.coefficients, &right.coefficients)?,
+                })
+            }
+            PolynomialRequest::Lcm { left, right } => {
+                let left = Polynomial::parse(left)?;
+                let right = Polynomial::parse(right)?;
+                ensure_same_variable(&left, &right)?;
+                Ok(PolynomialOutput::Polynomial {
+                    variable: left.variable.clone(),
+                    coefficients: poly_lcm(&left.coefficients, &right.coefficients)?,
+                })
+            }
+            PolynomialRequest::Factor { polynomial } => {
+                let polynomial = Polynomial::parse(polynomial)?;
+                Ok(PolynomialOutput::Factors {
+                    variable: polynomial.variable,
+                    factors: factor_coefficients(&polynomial.coefficients)?,
+                })
+            }
+            PolynomialRequest::IsolateRoots {
+                polynomial,
+                tolerance,
+            } => {
+                let polynomial = Polynomial::parse(polynomial)?;
+                let tol = tolerance.evaluate()?;
+                if tol <= Rational::zero() {
+                    return Err("tolerance must be positive".to_owned());
+                }
+                Ok(PolynomialOutput::RootIntervals {
+                    variable: polynomial.variable,
+                    intervals: isolate_roots_coefficients(&polynomial.coefficients, &tol)?,
+                })
+            }
         }
     }
 }
@@ -168,7 +264,8 @@ pub fn polynomial_schema_json() -> Value {
         "oneOf": [
             {"$ref": "#/$defs/UnaryPolynomial"},
             {"$ref": "#/$defs/BinaryPolynomial"},
-            {"$ref": "#/$defs/Evaluate"}
+            {"$ref": "#/$defs/Evaluate"},
+            {"$ref": "#/$defs/IsolateRoots"}
         ],
         "$defs": {
             "Expr": expr_defs["Expr"].clone(),
@@ -198,7 +295,7 @@ pub fn polynomial_schema_json() -> Value {
                 "required": ["intent", "polynomial"],
                 "additionalProperties": false,
                 "properties": {
-                    "intent": {"enum": ["normalize", "derivative", "solve"]},
+                    "intent": {"enum": ["normalize", "derivative", "solve", "factor"]},
                     "polynomial": {"$ref": "#/$defs/Polynomial"}
                 }
             },
@@ -207,7 +304,7 @@ pub fn polynomial_schema_json() -> Value {
                 "required": ["intent", "left", "right"],
                 "additionalProperties": false,
                 "properties": {
-                    "intent": {"enum": ["add", "mul"]},
+                    "intent": {"enum": ["add", "mul", "gcd", "lcm"]},
                     "left": {"$ref": "#/$defs/Polynomial"},
                     "right": {"$ref": "#/$defs/Polynomial"}
                 }
@@ -220,6 +317,16 @@ pub fn polynomial_schema_json() -> Value {
                     "intent": {"const": "evaluate"},
                     "polynomial": {"$ref": "#/$defs/Polynomial"},
                     "at": {"$ref": "#/$defs/Expr"}
+                }
+            },
+            "IsolateRoots": {
+                "type": "object",
+                "required": ["intent", "polynomial", "tolerance"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "isolate_roots"},
+                    "polynomial": {"$ref": "#/$defs/Polynomial"},
+                    "tolerance": {"$ref": "#/$defs/Expr"}
                 }
             }
         }
@@ -240,6 +347,14 @@ enum PolynomialOutput {
     Roots {
         variable: String,
         roots: Vec<Rational>,
+    },
+    Factors {
+        variable: String,
+        factors: Vec<Vec<Rational>>,
+    },
+    RootIntervals {
+        variable: String,
+        intervals: Vec<(Rational, Rational)>,
     },
 }
 
@@ -592,6 +707,269 @@ fn solve_checks() -> Vec<PolynomialCheck> {
             passed: true,
         },
     ]
+}
+
+fn poly_div(
+    dividend: &[Rational],
+    divisor: &[Rational],
+) -> Result<(Vec<Rational>, Vec<Rational>), String> {
+    if divisor.iter().all(|c| c.is_zero()) {
+        return Err("polynomial division by zero".to_owned());
+    }
+    let mut rem = dividend.to_vec();
+    let mut div_norm = divisor.to_vec();
+    normalize_coefficients(&mut rem);
+    normalize_coefficients(&mut div_norm);
+
+    if rem.len() < div_norm.len() {
+        return Ok((vec![Rational::zero()], rem));
+    }
+
+    let quot_len = rem.len() - div_norm.len() + 1;
+    let mut quot = vec![Rational::zero(); quot_len];
+    let lead_d = div_norm.last().unwrap().clone();
+
+    for i in (0..quot_len).rev() {
+        let lead_r = rem[i + div_norm.len() - 1].clone();
+        if lead_r.is_zero() {
+            continue;
+        }
+        let c = lead_r.checked_div(&lead_d).map_err(|e| e.to_string())?;
+        quot[i] = c.clone();
+        for (j, dj) in div_norm.iter().enumerate() {
+            let sub = c.checked_mul(dj).map_err(|e| e.to_string())?;
+            rem[i + j] = rem[i + j].checked_sub(&sub).map_err(|e| e.to_string())?;
+        }
+    }
+
+    normalize_coefficients(&mut quot);
+    normalize_coefficients(&mut rem);
+    Ok((quot, rem))
+}
+
+fn poly_rem(p: &[Rational], q: &[Rational]) -> Result<Vec<Rational>, String> {
+    Ok(poly_div(p, q)?.1)
+}
+
+fn poly_gcd(p: &[Rational], q: &[Rational]) -> Result<Vec<Rational>, String> {
+    let mut a = p.to_vec();
+    let mut b = q.to_vec();
+    normalize_coefficients(&mut a);
+    normalize_coefficients(&mut b);
+
+    loop {
+        if b.len() == 1 && b[0].is_zero() {
+            break;
+        }
+        let r = poly_rem(&a, &b)?;
+        a = b;
+        b = r;
+        normalize_coefficients(&mut b);
+    }
+
+    if let Some(lead) = a.last().cloned()
+        && !lead.is_zero()
+    {
+        for c in &mut a {
+            *c = c.checked_div(&lead).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(a)
+}
+
+fn poly_lcm(p: &[Rational], q: &[Rational]) -> Result<Vec<Rational>, String> {
+    let g = poly_gcd(p, q)?;
+    let (p_div_g, _rem) = poly_div(p, &g)?;
+    let mut result = mul_coefficients(&p_div_g, q)?;
+
+    if let Some(lead) = result.last().cloned()
+        && !lead.is_zero()
+    {
+        for c in &mut result {
+            *c = c.checked_div(&lead).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(result)
+}
+
+fn factor_coefficients(coefficients: &[Rational]) -> Result<Vec<Vec<Rational>>, String> {
+    let mut remaining = coefficients.to_vec();
+    let mut factors: Vec<Vec<Rational>> = Vec::new();
+
+    let lead = remaining.last().unwrap().clone();
+    if lead != Rational::one() {
+        for c in &mut remaining {
+            *c = c.checked_div(&lead).map_err(|e| e.to_string())?;
+        }
+        factors.push(vec![lead]);
+    }
+
+    loop {
+        let degree = remaining.len() - 1;
+        if degree == 0 {
+            break;
+        }
+        if degree == 1 {
+            factors.push(remaining);
+            break;
+        }
+        if degree == 2 {
+            match solve_quadratic(&remaining) {
+                Ok(roots) => {
+                    for root in &roots {
+                        let neg = root.checked_neg().map_err(|e| e.to_string())?;
+                        factors.push(vec![neg, Rational::one()]);
+                    }
+                }
+                _ => {
+                    factors.push(remaining);
+                }
+            }
+            break;
+        }
+
+        let scaled = scale_to_integers(&remaining)?;
+        let const_term = scaled[0].abs();
+        let lead_term = scaled.last().unwrap().abs();
+        let p_divs = positive_divisors(&const_term);
+        let q_divs = positive_divisors(&lead_term);
+
+        let mut found = false;
+        'root_search: for p_val in &p_divs {
+            for q_val in &q_divs {
+                for &sign in &[1i64, -1i64] {
+                    let num = BigInt::from(sign) * p_val;
+                    if let Ok(r) = Rational::new(num, q_val.clone())
+                        && evaluate_coefficients(&remaining, &r)?.is_zero()
+                    {
+                        let neg = r.checked_neg().map_err(|e| e.to_string())?;
+                        factors.push(vec![neg, Rational::one()]);
+                        remaining = synthetic_div(&remaining, &r)?;
+                        normalize_coefficients(&mut remaining);
+                        found = true;
+                        break 'root_search;
+                    }
+                }
+            }
+        }
+
+        if !found {
+            factors.push(remaining);
+            break;
+        }
+    }
+
+    Ok(factors)
+}
+
+fn sturm_sequence(p: &[Rational]) -> Result<Vec<Vec<Rational>>, String> {
+    let p0 = p.to_vec();
+    let p1 = derivative_coefficients(&p0)?;
+    if p1.len() == 1 && p1[0].is_zero() {
+        return Ok(vec![p0]);
+    }
+    let mut seq = vec![p0, p1];
+
+    loop {
+        let last = seq.last().unwrap().clone();
+        if last.len() == 1 {
+            break;
+        }
+        let prev = seq[seq.len() - 2].clone();
+        let r = poly_rem(&prev, &last)?;
+        let neg_r: Vec<Rational> = r
+            .iter()
+            .map(|c| c.checked_neg().map_err(|e| e.to_string()))
+            .collect::<Result<_, _>>()?;
+        let mut neg_r = neg_r;
+        normalize_coefficients(&mut neg_r);
+        if neg_r.len() == 1 && neg_r[0].is_zero() {
+            break;
+        }
+        seq.push(neg_r);
+    }
+
+    Ok(seq)
+}
+
+fn sign_changes_at(seq: &[Vec<Rational>], x: &Rational) -> Result<usize, String> {
+    let mut changes = 0usize;
+    let mut last: Option<Rational> = None;
+    for poly in seq {
+        let v = evaluate_coefficients(poly, x)?;
+        if v.is_zero() {
+            continue;
+        }
+        if let Some(ref lv) = last
+            && lv.checked_mul(&v).map_err(|e| e.to_string())?.is_negative()
+        {
+            changes += 1;
+        }
+        last = Some(v);
+    }
+    Ok(changes)
+}
+
+fn cauchy_bound(coefficients: &[Rational]) -> Result<Rational, String> {
+    let lead_abs = coefficients.last().unwrap().abs();
+    let mut max_ratio = Rational::zero();
+    for c in &coefficients[..coefficients.len() - 1] {
+        let ratio = c.abs().checked_div(&lead_abs).map_err(|e| e.to_string())?;
+        if ratio.cmp(&max_ratio) == std::cmp::Ordering::Greater {
+            max_ratio = ratio;
+        }
+    }
+    Rational::one()
+        .checked_add(&max_ratio)
+        .map_err(|e| e.to_string())
+}
+
+fn isolate_interval(
+    sturm: &[Vec<Rational>],
+    lo: Rational,
+    hi: Rational,
+    tolerance: &Rational,
+    depth: usize,
+    results: &mut Vec<(Rational, Rational)>,
+) -> Result<(), String> {
+    let sc_lo = sign_changes_at(sturm, &lo)? as isize;
+    let sc_hi = sign_changes_at(sturm, &hi)? as isize;
+    let count = sc_lo - sc_hi;
+    if count <= 0 {
+        return Ok(());
+    }
+    if depth > 200 {
+        return Err("root isolation exceeded maximum recursion depth".to_owned());
+    }
+    let width = hi.checked_sub(&lo).map_err(|e| e.to_string())?;
+    if count == 1 && &width <= tolerance {
+        results.push((lo, hi));
+        return Ok(());
+    }
+    let two = Rational::integer(2);
+    let mid = lo
+        .checked_add(&hi)
+        .and_then(|s| s.checked_div(&two))
+        .map_err(|e| e.to_string())?;
+    let next_depth = depth + 1;
+    isolate_interval(sturm, lo, mid.clone(), tolerance, next_depth, results)?;
+    isolate_interval(sturm, mid, hi, tolerance, next_depth, results)?;
+    Ok(())
+}
+
+fn isolate_roots_coefficients(
+    coefficients: &[Rational],
+    tolerance: &Rational,
+) -> Result<Vec<(Rational, Rational)>, String> {
+    let sturm = sturm_sequence(coefficients)?;
+    let bound = cauchy_bound(coefficients)?;
+    let neg_bound = bound.checked_neg().map_err(|e| e.to_string())?;
+    let mut results = Vec::new();
+    isolate_interval(&sturm, neg_bound, bound, tolerance, 0, &mut results)?;
+    results.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(results)
 }
 
 fn is_valid_symbol_name(name: &str) -> bool {
@@ -1081,5 +1459,396 @@ mod tests {
             scale_to_integers(&coeffs).unwrap(),
             vec![BigInt::from(2), BigInt::from(3)]
         );
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    fn rat(n: i64, d: i64) -> Expr {
+        Expr::Rational {
+            numerator: n.to_string(),
+            denominator: d.to_string(),
+        }
+    }
+
+    fn r(n: i64, d: i64) -> Rational {
+        Rational::new(n, d).unwrap()
+    }
+
+    fn factor_displays(response: PolynomialResponse) -> Vec<Vec<String>> {
+        match response {
+            PolynomialResponse::Factors { factors, .. } => factors
+                .into_iter()
+                .map(|f| f.into_iter().map(|c| c.display).collect())
+                .collect(),
+            other => panic!("expected factors, got {other:?}"),
+        }
+    }
+
+    fn interval_displays(response: PolynomialResponse) -> Vec<(String, String)> {
+        match response {
+            PolynomialResponse::RootIntervals { intervals, .. } => intervals
+                .into_iter()
+                .map(|i| (i.lower.display, i.upper.display))
+                .collect(),
+            other => panic!("expected root_intervals, got {other:?}"),
+        }
+    }
+
+    fn parse_display_f64(s: &str) -> f64 {
+        if let Some((n, d)) = s.split_once('/') {
+            n.parse::<f64>().unwrap() / d.parse::<f64>().unwrap()
+        } else {
+            s.parse().unwrap()
+        }
+    }
+
+    // ── poly_div ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn poly_div_divides_exactly() {
+        // (x^2 + 5x + 6) / (x + 2) = x + 3, rem 0
+        let p = vec![r(6, 1), r(5, 1), r(1, 1)];
+        let q = vec![r(2, 1), r(1, 1)];
+        let (quot, rem) = poly_div(&p, &q).unwrap();
+        assert_eq!(quot, vec![r(3, 1), r(1, 1)]);
+        assert_eq!(rem, vec![r(0, 1)]);
+    }
+
+    #[test]
+    fn poly_div_returns_remainder() {
+        // (x^2 + 1) / (x + 1) = x - 1, rem 2
+        let p = vec![r(1, 1), r(0, 1), r(1, 1)];
+        let q = vec![r(1, 1), r(1, 1)];
+        let (quot, rem) = poly_div(&p, &q).unwrap();
+        assert_eq!(quot, vec![r(-1, 1), r(1, 1)]);
+        assert_eq!(rem, vec![r(2, 1)]);
+    }
+
+    #[test]
+    fn poly_div_degree_less_than_divisor() {
+        // (x + 1) / (x^2 + 1) = 0, rem (x + 1)
+        let p = vec![r(1, 1), r(1, 1)];
+        let q = vec![r(1, 1), r(0, 1), r(1, 1)];
+        let (quot, rem) = poly_div(&p, &q).unwrap();
+        assert_eq!(quot, vec![r(0, 1)]);
+        assert_eq!(rem, vec![r(1, 1), r(1, 1)]);
+    }
+
+    // ── poly_gcd ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn gcd_of_coprime_polynomials_is_one() {
+        // gcd(x + 1, x + 2) = 1
+        let p = vec![r(1, 1), r(1, 1)];
+        let q = vec![r(2, 1), r(1, 1)];
+        assert_eq!(poly_gcd(&p, &q).unwrap(), vec![r(1, 1)]);
+    }
+
+    #[test]
+    fn gcd_finds_common_factor() {
+        // gcd(x^2 + 5x + 6, x + 2) = x + 2
+        let p = vec![r(6, 1), r(5, 1), r(1, 1)];
+        let q = vec![r(2, 1), r(1, 1)];
+        assert_eq!(poly_gcd(&p, &q).unwrap(), vec![r(2, 1), r(1, 1)]);
+    }
+
+    #[test]
+    fn gcd_is_monic() {
+        // gcd(x^2 - 1, 2x + 2) = x + 1 (monic)
+        let p = vec![r(-1, 1), r(0, 1), r(1, 1)];
+        let q = vec![r(2, 1), r(2, 1)];
+        assert_eq!(poly_gcd(&p, &q).unwrap(), vec![r(1, 1), r(1, 1)]);
+    }
+
+    #[test]
+    fn gcd_same_polynomial_is_itself() {
+        // gcd(p, p) = p (monic)
+        let p = vec![r(6, 1), r(5, 1), r(1, 1)];
+        assert_eq!(
+            poly_gcd(&p, &p.clone()).unwrap(),
+            vec![r(6, 1), r(5, 1), r(1, 1)]
+        );
+    }
+
+    // ── poly_lcm ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn lcm_of_coprime_is_product_monic() {
+        // lcm(x + 1, x + 2) = (x+1)(x+2) = x^2 + 3x + 2 (monic)
+        let p = vec![r(1, 1), r(1, 1)];
+        let q = vec![r(2, 1), r(1, 1)];
+        assert_eq!(poly_lcm(&p, &q).unwrap(), vec![r(2, 1), r(3, 1), r(1, 1)]);
+    }
+
+    #[test]
+    fn lcm_with_common_factor() {
+        // lcm(x^2+5x+6, x+2) = x^2+5x+6 (since x+2 | x^2+5x+6)
+        let p = vec![r(6, 1), r(5, 1), r(1, 1)];
+        let q = vec![r(2, 1), r(1, 1)];
+        assert_eq!(poly_lcm(&p, &q).unwrap(), vec![r(6, 1), r(5, 1), r(1, 1)]);
+    }
+
+    // ── factor ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn factors_monic_quadratic_with_rational_roots() {
+        // x^2 + 5x + 6 = (x+2)(x+3)
+        let resp = PolynomialRequest::Factor {
+            polynomial: poly(vec![int(6), int(5), int(1)]),
+        }
+        .evaluate();
+        let mut f = factor_displays(resp);
+        f.sort();
+        assert_eq!(f, vec![vec!["2", "1"], vec!["3", "1"]]);
+    }
+
+    #[test]
+    fn factors_extracts_leading_coefficient() {
+        // 2x^2 + 10x + 12 = 2(x+2)(x+3)
+        let resp = PolynomialRequest::Factor {
+            polynomial: poly(vec![int(12), int(10), int(2)]),
+        }
+        .evaluate();
+        let mut f = factor_displays(resp);
+        f.sort();
+        assert_eq!(f, vec![vec!["2"], vec!["2", "1"], vec!["3", "1"]]);
+    }
+
+    #[test]
+    fn factors_irreducible_quadratic_returns_as_single_factor() {
+        // x^2 + 1 is irreducible over Q
+        let resp = PolynomialRequest::Factor {
+            polynomial: poly(vec![int(1), int(0), int(1)]),
+        }
+        .evaluate();
+        let f = factor_displays(resp);
+        assert_eq!(f, vec![vec!["1", "0", "1"]]);
+    }
+
+    #[test]
+    fn factors_cubic_completely() {
+        // x^3 - 6x^2 + 11x - 6 = (x-1)(x-2)(x-3)
+        let resp = PolynomialRequest::Factor {
+            polynomial: poly(vec![int(-6), int(11), int(-6), int(1)]),
+        }
+        .evaluate();
+        let mut f = factor_displays(resp);
+        f.sort();
+        assert_eq!(f, vec![vec!["-1", "1"], vec!["-2", "1"], vec!["-3", "1"]]);
+    }
+
+    #[test]
+    fn factors_cubic_with_irreducible_quadratic() {
+        // (x-2)(x^2+1) = x^3 - 2x^2 + x - 2
+        // ascending: [-2, 1, -2, 1]
+        let resp = PolynomialRequest::Factor {
+            polynomial: poly(vec![int(-2), int(1), int(-2), int(1)]),
+        }
+        .evaluate();
+        let mut f = factor_displays(resp);
+        f.sort();
+        assert_eq!(f, vec![vec!["-2", "1"], vec!["1", "0", "1"]]);
+    }
+
+    // ── gcd / lcm via CLI ────────────────────────────────────────────────────
+
+    #[test]
+    fn gcd_via_request_returns_polynomial() {
+        // gcd(x^2+5x+6, x+2) → polynomial [2, 1] = x+2
+        let resp = PolynomialRequest::Gcd {
+            left: poly(vec![int(6), int(5), int(1)]),
+            right: poly(vec![int(2), int(1)]),
+        }
+        .evaluate();
+        match resp {
+            PolynomialResponse::Polynomial { coefficients, .. } => {
+                let d: Vec<String> = coefficients.into_iter().map(|c| c.display).collect();
+                assert_eq!(d, vec!["2", "1"]);
+            }
+            other => panic!("expected polynomial, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lcm_via_request_returns_polynomial() {
+        // lcm(x+1, x+2) → x^2+3x+2 (monic)
+        let resp = PolynomialRequest::Lcm {
+            left: poly(vec![int(1), int(1)]),
+            right: poly(vec![int(2), int(1)]),
+        }
+        .evaluate();
+        match resp {
+            PolynomialResponse::Polynomial { coefficients, .. } => {
+                let d: Vec<String> = coefficients.into_iter().map(|c| c.display).collect();
+                assert_eq!(d, vec!["2", "3", "1"]);
+            }
+            other => panic!("expected polynomial, got {other:?}"),
+        }
+    }
+
+    // ── isolate_roots ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn isolates_two_roots_of_quadratic() {
+        // x^2 - 2 has roots ±√2 ≈ ±1.414; tolerance 1/10
+        let resp = PolynomialRequest::IsolateRoots {
+            polynomial: poly(vec![int(-2), int(0), int(1)]),
+            tolerance: rat(1, 10),
+        }
+        .evaluate();
+        let intervals = interval_displays(resp);
+        assert_eq!(intervals.len(), 2);
+        // First interval straddles -√2
+        let lo0 = parse_display_f64(&intervals[0].0);
+        let hi0 = parse_display_f64(&intervals[0].1);
+        assert!(lo0 < -1.41 && hi0 > -1.42);
+        // Second interval straddles +√2
+        let lo1 = parse_display_f64(&intervals[1].0);
+        let hi1 = parse_display_f64(&intervals[1].1);
+        assert!(lo1 < 1.42 && hi1 > 1.41);
+    }
+
+    #[test]
+    fn isolate_roots_finds_zero_roots_for_no_real_roots() {
+        // x^2 + 1 has no real roots
+        let resp = PolynomialRequest::IsolateRoots {
+            polynomial: poly(vec![int(1), int(0), int(1)]),
+            tolerance: rat(1, 100),
+        }
+        .evaluate();
+        assert_eq!(interval_displays(resp).len(), 0);
+    }
+
+    #[test]
+    fn isolate_roots_finds_three_roots_of_cubic() {
+        // x^3 - 3x has roots -√3, 0, √3
+        // ascending: [0, -3, 0, 1]
+        let resp = PolynomialRequest::IsolateRoots {
+            polynomial: poly(vec![int(0), int(-3), int(0), int(1)]),
+            tolerance: rat(1, 100),
+        }
+        .evaluate();
+        let intervals = interval_displays(resp);
+        assert_eq!(intervals.len(), 3);
+    }
+
+    #[test]
+    fn isolate_roots_rational_root_is_exact_when_at_boundary() {
+        // x^2 - 4 = (x-2)(x+2): roots ±2 exactly
+        let resp = PolynomialRequest::IsolateRoots {
+            polynomial: poly(vec![int(-4), int(0), int(1)]),
+            tolerance: rat(1, 10),
+        }
+        .evaluate();
+        let intervals = interval_displays(resp);
+        assert_eq!(intervals.len(), 2);
+    }
+
+    // ── poly_lcm normalization ────────────────────────────────────────────────
+
+    #[test]
+    fn lcm_normalizes_non_unit_lead_to_monic() {
+        // lcm(2x, 2x+2): gcd=2(const), p/gcd=x, product=x*(2x+2)=2x^2+2x → monic x^2+x
+        // If !lead.is_zero() guard is deleted: skips normalization, returns [0,2,2] not [0,1,1]
+        let p = vec![r(0, 1), r(2, 1)];
+        let q = vec![r(2, 1), r(2, 1)];
+        let result = poly_lcm(&p, &q).unwrap();
+        assert_eq!(result.last().unwrap(), &r(1, 1)); // monic
+    }
+
+    // ── factor negative roots ─────────────────────────────────────────────────
+
+    #[test]
+    fn factors_cubic_with_negative_roots() {
+        // (x+1)(x+3)(x+5) = x^3 + 9x^2 + 23x + 15; ascending: [15,23,9,1]
+        // Kills 'delete -' (only +sign tried → misses -1,-3,-5)
+        // Kills '* → +' (sign+p ≠ sign*p for p≥2 → misses -3 and -5)
+        let resp = PolynomialRequest::Factor {
+            polynomial: poly(vec![int(15), int(23), int(9), int(1)]),
+        }
+        .evaluate();
+        let mut f = factor_displays(resp);
+        f.sort();
+        assert_eq!(f, vec![vec!["1", "1"], vec!["3", "1"], vec!["5", "1"]]);
+    }
+
+    // ── isolate_interval unit tests ───────────────────────────────────────────
+
+    #[test]
+    fn isolate_interval_succeeds_at_depth_200() {
+        // x has root 0. Interval [-1/20, 1/20], width=1/10 = tolerance.
+        // depth > 200: false at depth=200 → proceeds, finds root → Ok.
+        // Mutation depth==200 or depth>=200 → errors immediately.
+        let coeffs = vec![r(0, 1), r(1, 1)];
+        let sturm = sturm_sequence(&coeffs).unwrap();
+        let mut results = Vec::new();
+        let result = isolate_interval(&sturm, r(-1, 20), r(1, 20), &r(1, 10), 200, &mut results);
+        assert!(result.is_ok(), "depth=200 should not trigger the guard");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn cauchy_bound_exact_value() {
+        // 2x + 1 = [1, 2]: lead=2, non-lead=[1], ratio=1/2, bound=3/2.
+        // Mutation len-1→len/1: also iterates over lead, ratio=max(1/2,1)=1, bound=2. Different!
+        assert_eq!(cauchy_bound(&[r(1, 1), r(2, 1)]).unwrap(), r(3, 2));
+    }
+
+    #[test]
+    fn isolate_interval_catches_left_branch_depth_increment() {
+        // x + 3/2: root at -3/2, always in left half when bisecting [-2, 0].
+        // With depth=200 and width=2 > 1/10: must recurse left via line 953.
+        // Original (depth+1=201): left count=1, depth>200 → Err.
+        // Mutation line 953 (depth*1=200): left count=1, depth not>200 → recurse → Ok.
+        // Right half always has count=0 (root not there) → returns before depth guard.
+        let coeffs = vec![r(3, 2), r(1, 1)];
+        let sturm = sturm_sequence(&coeffs).unwrap();
+        let mut results = Vec::new();
+        let result = isolate_interval(&sturm, r(-2, 1), r(0, 1), &r(1, 10), 200, &mut results);
+        assert!(result.is_err(), "left recursion must increment depth");
+    }
+
+    #[test]
+    fn isolate_interval_catches_right_branch_depth_increment() {
+        // x - 3/2: root at 3/2, always in right half when bisecting [0, 2].
+        // With depth=200 and width=2 > 1/10: must recurse right via line 954.
+        // Original (depth+1=201): right count=1, depth>200 → Err.
+        // Left half count=0 → returns before depth guard (new guard order).
+        // Mutation line 954 (depth*1=200): right count=1, depth not>200 → recurse → Ok.
+        let coeffs = vec![r(-3, 2), r(1, 1)];
+        let sturm = sturm_sequence(&coeffs).unwrap();
+        let mut results = Vec::new();
+        let result = isolate_interval(&sturm, r(0, 1), r(2, 1), &r(1, 10), 200, &mut results);
+        assert!(result.is_err(), "right recursion must increment depth");
+    }
+
+    #[test]
+    fn isolate_interval_errors_above_depth_200() {
+        // x^2 - 2: two roots. depth=200, interval [-2,2], count=2, width=4 > tolerance.
+        // Must bisect → recurses to depth=201 → depth>200 errors.
+        // Mutation depth+1→depth*1: always stays at depth=200, eventually terminates → Ok.
+        let coeffs = vec![r(-2, 1), r(0, 1), r(1, 1)];
+        let sturm = sturm_sequence(&coeffs).unwrap();
+        let mut results = Vec::new();
+        let result = isolate_interval(&sturm, r(-2, 1), r(2, 1), &r(1, 100), 200, &mut results);
+        assert!(
+            result.is_err(),
+            "should error when recursion exceeds depth 200"
+        );
+    }
+
+    #[test]
+    fn isolate_roots_wide_tolerance_gives_two_intervals() {
+        // x^2 - 1 = (x-1)(x+1). Cauchy bound=2, interval [-2,2], count=2, width=4.
+        // tolerance=4 (>= width): with &&→|| mutation, exits early on count=2 because width<=tol,
+        //   returning 1 interval instead of 2.
+        // with <=→> mutation: width>tol always true → never terminates (hits depth limit).
+        let resp = PolynomialRequest::IsolateRoots {
+            polynomial: poly(vec![int(-1), int(0), int(1)]),
+            tolerance: rat(4, 1),
+        }
+        .evaluate();
+        let intervals = interval_displays(resp);
+        assert_eq!(intervals.len(), 2);
     }
 }

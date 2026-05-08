@@ -3235,3 +3235,70 @@ fn assumptions_bounded_kind_cli() {
     assert_eq!(json["status"], "entailment");
     assert_eq!(json["entailed"], true);
 }
+
+// ── polynomial gcd / lcm / factor / isolate_roots ────────────────────────────
+
+fn polynomial_run(input: &[u8]) -> serde_json::Value {
+    let mut child = Command::new(bin())
+        .arg("polynomial")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(input).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn polynomial_gcd_finds_common_factor() {
+    // gcd(x^2+5x+6, x+2) = x+2
+    let json = polynomial_run(
+        br#"{"intent":"gcd","left":{"variable":"x","coefficients":[{"kind":"integer","value":"6"},{"kind":"integer","value":"5"},{"kind":"integer","value":"1"}]},"right":{"variable":"x","coefficients":[{"kind":"integer","value":"2"},{"kind":"integer","value":"1"}]}}"#,
+    );
+    assert_eq!(json["status"], "polynomial");
+    assert_eq!(json["coefficients"][0]["display"], "2");
+    assert_eq!(json["coefficients"][1]["display"], "1");
+}
+
+#[test]
+fn polynomial_lcm_returns_product_for_coprime() {
+    // lcm(x+1, x+2) = (x+1)(x+2) = x^2+3x+2 (monic)
+    let json = polynomial_run(
+        br#"{"intent":"lcm","left":{"variable":"x","coefficients":[{"kind":"integer","value":"1"},{"kind":"integer","value":"1"}]},"right":{"variable":"x","coefficients":[{"kind":"integer","value":"2"},{"kind":"integer","value":"1"}]}}"#,
+    );
+    assert_eq!(json["status"], "polynomial");
+    assert_eq!(json["coefficients"][0]["display"], "2");
+    assert_eq!(json["coefficients"][1]["display"], "3");
+    assert_eq!(json["coefficients"][2]["display"], "1");
+}
+
+#[test]
+fn polynomial_factor_splits_into_linear_factors() {
+    // x^2+5x+6 = (x+2)(x+3)
+    let json = polynomial_run(
+        br#"{"intent":"factor","polynomial":{"variable":"x","coefficients":[{"kind":"integer","value":"6"},{"kind":"integer","value":"5"},{"kind":"integer","value":"1"}]}}"#,
+    );
+    assert_eq!(json["status"], "factors");
+    let factors = json["factors"].as_array().unwrap();
+    assert_eq!(factors.len(), 2);
+    let mut roots: Vec<i64> = factors
+        .iter()
+        .map(|f| f[0]["display"].as_str().unwrap().parse::<i64>().unwrap())
+        .collect();
+    roots.sort();
+    assert_eq!(roots, vec![2, 3]);
+}
+
+#[test]
+fn polynomial_isolate_roots_finds_two_intervals() {
+    // x^2 - 2: two irrational roots ±√2
+    let json = polynomial_run(
+        br#"{"intent":"isolate_roots","polynomial":{"variable":"x","coefficients":[{"kind":"integer","value":"-2"},{"kind":"integer","value":"0"},{"kind":"integer","value":"1"}]},"tolerance":{"kind":"rational","numerator":"1","denominator":"10"}}"#,
+    );
+    assert_eq!(json["status"], "root_intervals");
+    assert_eq!(json["intervals"].as_array().unwrap().len(), 2);
+    assert!(json["intervals"][0]["lower"]["display"].is_string());
+    assert!(json["intervals"][0]["upper"]["display"].is_string());
+}
