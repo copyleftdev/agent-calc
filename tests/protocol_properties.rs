@@ -460,7 +460,7 @@ fn eval_enforces_symbol_length_and_node_count_limits() {
             Expr::Integer {
                 value: "1".to_owned(),
             }
-        } else if nodes % 2 == 0 {
+        } else if nodes.is_multiple_of(2) {
             Expr::Neg {
                 value: Box::new(tree_with_nodes(nodes - 1)),
             }

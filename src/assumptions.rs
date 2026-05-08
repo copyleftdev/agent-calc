@@ -61,6 +61,7 @@ pub enum ComparisonOp {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum AssumptionsResponse {
     Context {
         contract_version: String,

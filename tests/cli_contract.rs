@@ -760,7 +760,7 @@ fn assumptions_reads_stdin_and_answers_entailment() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["status"], "entailment");
     assert_eq!(json["entailed"], true);
-    assert!(json["evidence"].as_array().unwrap().len() >= 1);
+    assert!(!json["evidence"].as_array().unwrap().is_empty());
 }
 
 #[test]
