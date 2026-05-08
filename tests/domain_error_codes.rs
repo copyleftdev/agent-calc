@@ -246,6 +246,7 @@ fn approximate_domains_emit_error_codes() {
                 relation: ConstraintRelation::Le,
                 rhs: 1.0,
             }],
+            max_nodes: 1000,
         }
         .evaluate(),
         LinearResponse::Error {

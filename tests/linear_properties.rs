@@ -9,6 +9,7 @@ fn nonnegative_vars(n: usize) -> Vec<VariableBounds> {
         VariableBounds {
             lower: Some(0.0),
             upper: None,
+            ..Default::default()
         };
         n
     ]
@@ -25,8 +26,9 @@ proptest! {
         match (LinearRequest::SolveLp {
             direction: ObjectiveDirection::Maximize,
             objective: vec![coeff],
-            variables: vec![VariableBounds { lower: Some(0.0), upper: Some(upper) }],
+            variables: vec![VariableBounds { lower: Some(0.0), upper: Some(upper), ..Default::default() }],
             constraints: vec![],
+            max_nodes: 1000,
         }).evaluate() {
             LinearResponse::Optimal { objective_value, variables, .. } => {
                 prop_assert!((variables[0] - upper).abs() <= upper.max(1.0) * 1e-8);
@@ -48,8 +50,9 @@ proptest! {
         match (LinearRequest::SolveLp {
             direction: ObjectiveDirection::Minimize,
             objective: vec![coeff],
-            variables: vec![VariableBounds { lower: Some(lower), upper: Some(upper) }],
+            variables: vec![VariableBounds { lower: Some(lower), upper: Some(upper), ..Default::default() }],
             constraints: vec![],
+            max_nodes: 1000,
         }).evaluate() {
             LinearResponse::Optimal { objective_value, variables, .. } => {
                 prop_assert!((variables[0] - lower).abs() <= lower.abs().max(1.0) * 1e-8);
@@ -76,6 +79,7 @@ proptest! {
                 relation: ConstraintRelation::Le,
                 rhs,
             }],
+            max_nodes: 1000,
         }).evaluate() {
             LinearResponse::Optimal { variables, .. } => {
                 prop_assert!(variables[0] >= -1e-7);

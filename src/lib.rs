@@ -48,6 +48,6 @@ pub use complex::{ComplexInput, ComplexRequest, ComplexResponse, complex_schema_
 pub use interval::{IntervalInput, IntervalRequest, IntervalResponse, interval_schema_json};
 pub use linear::{
     ConstraintRelation, LinearConstraint, LinearRequest, LinearResponse, ObjectiveDirection,
-    VariableBounds, linear_schema_json,
+    VariableBounds, VariableKind, linear_schema_json,
 };
 pub use number::{NumberRequest, NumberResponse, PrimeFactor, number_schema_json};
