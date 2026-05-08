@@ -450,6 +450,19 @@ mod tests {
         }
     }
 
+    fn sub(left: Expr, right: Expr) -> Expr {
+        Expr::Sub {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn neg(value: Expr) -> Expr {
+        Expr::Neg {
+            value: Box::new(value),
+        }
+    }
+
     fn mul(left: Expr, right: Expr) -> Expr {
         Expr::Mul {
             left: Box::new(left),
@@ -494,6 +507,33 @@ mod tests {
                 passed: true,
             },
         ]
+    }
+
+    #[test]
+    fn affine_expr_handles_sub_and_neg_arms() {
+        // x - 3 < 7  →  x < 10  (kills Expr::Sub arm deletion in affine_expr)
+        assert!(matches!(
+            solve(sub(symbol("x"), int(3)), InequalityRelation::Lt, int(7)),
+            InequalityResponse::SolutionSet {
+                set: SolutionSet::Interval {
+                    lower: None,
+                    upper: Some(b),
+                },
+                ..
+            } if b.value.display == "10" && !b.inclusive
+        ));
+
+        // -x < 5  →  x > -5  (kills Expr::Neg arm deletion in affine_expr)
+        assert!(matches!(
+            solve(neg(symbol("x")), InequalityRelation::Lt, int(5)),
+            InequalityResponse::SolutionSet {
+                set: SolutionSet::Interval {
+                    lower: Some(b),
+                    upper: None,
+                },
+                ..
+            } if b.value.display == "-5" && !b.inclusive
+        ));
     }
 
     #[test]

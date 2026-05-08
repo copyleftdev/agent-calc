@@ -1,0 +1,10 @@
+# Equivalent mutations — algebraically indistinguishable from any test input.
+#
+# linear_regression: sum(xi ± mean_x) * (yi - mean_y) are equal because sum(yi-mean_y)=0
+# compute_ranks: j=i vs j=i+1 reach the same tie-group endpoint (extra self-equal iteration)
+# exact_integer_sqrt: Newton's method converges for any positive starting value
+exclude_re = [
+    "replace - with \\+ in linear_regression",
+    "replace \\+ with \\* in compute_ranks",
+    "replace / with \\* in exact_integer_sqrt",
+]

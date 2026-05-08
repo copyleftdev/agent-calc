@@ -383,6 +383,12 @@ mod tests {
         }
     }
 
+    fn neg(value: Expr) -> Expr {
+        Expr::Neg {
+            value: Box::new(value),
+        }
+    }
+
     fn solve(left: Expr, right: Expr) -> SolveResponse {
         SolveRequest::Solve {
             equation: EquationInput { left, right },
@@ -402,6 +408,20 @@ mod tests {
                 passed: true,
             },
         ]
+    }
+
+    #[test]
+    fn affine_expr_handles_neg_arm() {
+        // -x = 5  →  x = -5  (kills Expr::Neg arm deletion in affine_expr)
+        assert_eq!(
+            solve(neg(symbol("x")), int(5)),
+            SolveResponse::Solutions {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                variable: "x".to_owned(),
+                solutions: vec![exact_rational(&Rational::integer(-5))],
+                checks: expected_checks(),
+            }
+        );
     }
 
     #[test]

@@ -369,6 +369,14 @@ mod tests {
     }
 
     #[test]
+    fn round_uses_correct_half_up_formula() {
+        // 7/4 = 1.75 → 2; kills all 6 mutations on the two_n_plus_d / two_d lines
+        assert_eq!(Rational::new(7, 4).unwrap().round().to_string(), "2");
+        // 5/4 = 1.25 → 1 (additional value to disambiguate * vs + at col 47)
+        assert_eq!(Rational::new(5, 4).unwrap().round().to_string(), "1");
+    }
+
+    #[test]
     fn raises_to_integer_powers_exactly() {
         assert_eq!(
             Rational::new(2, 3)

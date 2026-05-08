@@ -693,6 +693,20 @@ mod tests {
         }
     }
 
+    fn max(left: Expr, right: Expr) -> Expr {
+        Expr::Max {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn min(left: Expr, right: Expr) -> Expr {
+        Expr::Min {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
     fn rational(numerator: i32, denominator: i32) -> Expr {
         Expr::Rational {
             numerator: numerator.to_string(),
@@ -707,6 +721,31 @@ mod tests {
             }
             TraceResponse::Error { trace, .. } => trace.into_iter().map(|step| step.rule).collect(),
             other => panic!("expected trace-bearing response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn eval_max_and_min_return_correct_value() {
+        // max(3, 5) = 5: kills `>= → <` mutation (would return 3)
+        match (TraceRequest::Eval {
+            expr: max(integer(3), integer(5)),
+            decimal_places: 0,
+        })
+        .evaluate()
+        {
+            TraceResponse::Evaluated { exact, .. } => assert_eq!(exact.display, "5"),
+            other => panic!("expected Evaluated, got {other:?}"),
+        }
+
+        // min(3, 5) = 3: kills `<= → >` mutation (would return 5)
+        match (TraceRequest::Eval {
+            expr: min(integer(3), integer(5)),
+            decimal_places: 0,
+        })
+        .evaluate()
+        {
+            TraceResponse::Evaluated { exact, .. } => assert_eq!(exact.display, "3"),
+            other => panic!("expected Evaluated, got {other:?}"),
         }
     }
 
