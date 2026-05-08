@@ -201,6 +201,27 @@ pub enum StatsRequest {
         #[serde(default = "default_smoothing")]
         smoothing: f64,
     },
+    MannWhitneyU {
+        sample1: Vec<f64>,
+        sample2: Vec<f64>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default)]
+        tail: Tail,
+    },
+    WilcoxonSigned {
+        before: Vec<f64>,
+        after: Vec<f64>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default)]
+        tail: Tail,
+    },
+    KruskalWallis {
+        groups: Vec<Vec<f64>>,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -730,6 +751,19 @@ impl StatsRequest {
                 max_lag,
                 smoothing,
             } => time_series_analysis(*method, values, *period, *max_lag, *smoothing),
+            StatsRequest::MannWhitneyU {
+                sample1,
+                sample2,
+                alpha,
+                tail,
+            } => mann_whitney_u_test(sample1, sample2, *alpha, *tail),
+            StatsRequest::WilcoxonSigned {
+                before,
+                after,
+                alpha,
+                tail,
+            } => wilcoxon_signed_rank_test(before, after, *alpha, *tail),
+            StatsRequest::KruskalWallis { groups, alpha } => kruskal_wallis_test(groups, *alpha),
         }
     }
 }
@@ -1762,6 +1796,162 @@ fn time_series_analysis(
         method: name,
         result,
         n: values.len(),
+    })
+}
+
+fn normal_z_p_value(z: f64, tail: Tail) -> f64 {
+    let n = Normal::new(0.0, 1.0).unwrap();
+    match tail {
+        Tail::Two => 2.0 * (1.0 - n.cdf(z.abs())),
+        Tail::Left => n.cdf(z),
+        Tail::Right => 1.0 - n.cdf(z),
+    }
+}
+
+fn normal_z_critical(alpha: f64, tail: Tail) -> f64 {
+    let n = Normal::new(0.0, 1.0).unwrap();
+    match tail {
+        Tail::Two => n.inverse_cdf(1.0 - alpha / 2.0),
+        Tail::Left => -n.inverse_cdf(1.0 - alpha),
+        Tail::Right => n.inverse_cdf(1.0 - alpha),
+    }
+}
+
+fn mann_whitney_u_test(
+    sample1: &[f64],
+    sample2: &[f64],
+    alpha: f64,
+    tail: Tail,
+) -> Result<StatsOutput, String> {
+    let n1 = sample1.len();
+    let n2 = sample2.len();
+    if n1 < 2 {
+        return Err("sample1 must contain at least 2 values".to_owned());
+    }
+    if n2 < 2 {
+        return Err("sample2 must contain at least 2 values".to_owned());
+    }
+    if !sample1.iter().all(|v| v.is_finite()) {
+        return Err("sample1 values must be finite".to_owned());
+    }
+    if !sample2.iter().all(|v| v.is_finite()) {
+        return Err("sample2 values must be finite".to_owned());
+    }
+    let pooled: Vec<f64> = sample1.iter().chain(sample2.iter()).copied().collect();
+    let ranks = compute_ranks(&pooled, RankMethod::Average);
+    let r1: f64 = ranks[..n1].iter().sum();
+    let u1 = r1 - (n1 * (n1 + 1) / 2) as f64;
+    let mu_u = (n1 * n2) as f64 / 2.0;
+    let sigma_u = ((n1 * n2 * (n1 + n2 + 1)) as f64 / 12.0).sqrt();
+    let z = (u1 - mu_u) / sigma_u;
+    let p_value = normal_z_p_value(z, tail);
+    let critical_value = normal_z_critical(alpha, tail);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: "MannWhitneyU",
+        statistic: u1,
+        p_value,
+        dof: 0.0,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
+    })
+}
+
+fn wilcoxon_signed_rank_test(
+    before: &[f64],
+    after: &[f64],
+    alpha: f64,
+    tail: Tail,
+) -> Result<StatsOutput, String> {
+    if before.len() != after.len() {
+        return Err("before and after must have the same length".to_owned());
+    }
+    let n = before.len();
+    if n < 2 {
+        return Err("paired sample must contain at least 2 values".to_owned());
+    }
+    if !before.iter().all(|v| v.is_finite()) || !after.iter().all(|v| v.is_finite()) {
+        return Err("before and after values must be finite".to_owned());
+    }
+    let diffs: Vec<f64> = before
+        .iter()
+        .zip(after.iter())
+        .map(|(b, a)| a - b)
+        .collect();
+    let nonzero: Vec<f64> = diffs.iter().copied().filter(|d| *d != 0.0).collect();
+    let n_nz = nonzero.len();
+    if n_nz == 0 {
+        return Err("all differences are zero — Wilcoxon test is undefined".to_owned());
+    }
+    let abs_nz: Vec<f64> = nonzero.iter().map(|d| d.abs()).collect();
+    let ranks = compute_ranks(&abs_nz, RankMethod::Average);
+    let w_plus: f64 = nonzero
+        .iter()
+        .zip(ranks.iter())
+        .filter(|(d, _)| (**d).is_sign_positive())
+        .map(|(_, r)| r)
+        .sum();
+    let mu_w = (n_nz * (n_nz + 1)) as f64 / 4.0;
+    let sigma_w = ((n_nz * (n_nz + 1) * (2 * n_nz + 1)) as f64 / 24.0).sqrt();
+    let z = (w_plus - mu_w) / sigma_w;
+    let p_value = normal_z_p_value(z, tail);
+    let critical_value = normal_z_critical(alpha, tail);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: "WilcoxonSigned",
+        statistic: w_plus,
+        p_value,
+        dof: 0.0,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
+    })
+}
+
+fn kruskal_wallis_test(groups: &[Vec<f64>], alpha: f64) -> Result<StatsOutput, String> {
+    if groups.len() < 2 {
+        return Err("kruskal_wallis requires at least 2 groups".to_owned());
+    }
+    for (i, g) in groups.iter().enumerate() {
+        if g.len() < 2 {
+            return Err(format!("group {i} must contain at least 2 values"));
+        }
+        if !g.iter().all(|v| v.is_finite()) {
+            return Err(format!("group {i} values must be finite"));
+        }
+    }
+    let n_total: usize = groups.iter().map(|g| g.len()).sum();
+    let pooled: Vec<f64> = groups.iter().flat_map(|g| g.iter().copied()).collect();
+    let all_ranks = compute_ranks(&pooled, RankMethod::Average);
+    let mut h_sum = 0.0f64;
+    let mut offset = 0usize;
+    for g in groups {
+        let n_k = g.len();
+        let r_k: f64 = all_ranks[offset..offset + n_k].iter().sum();
+        h_sum += r_k * r_k / n_k as f64;
+        offset += n_k;
+    }
+    let h = (12.0 / (n_total * (n_total + 1)) as f64) * h_sum - 3.0 * (n_total + 1) as f64;
+    let dof = (groups.len() - 1) as f64;
+    let chi2_dist = ChiSquared::new(dof).map_err(|e| e.to_string())?;
+    let p_value = 1.0 - chi2_dist.cdf(h);
+    let critical_value = chi2_dist.inverse_cdf(1.0 - alpha);
+    let reject_h0 = p_value < alpha;
+    let conclusion = hypothesis_conclusion(p_value, alpha, reject_h0);
+    Ok(StatsOutput::HypothesisTestResult {
+        test: "KruskalWallis",
+        statistic: h,
+        p_value,
+        dof,
+        critical_value,
+        alpha,
+        reject_h0,
+        conclusion,
     })
 }
 

@@ -42,7 +42,7 @@ pub use protocol::{
 };
 pub use rational::Rational;
 pub use solve::{EquationInput, SolveRequest, SolveResponse, solve_schema_json};
-pub use stats::{StatsRequest, StatsResponse, stats_schema_json};
+pub use stats::{StatsRequest, StatsResponse, Tail, stats_schema_json};
 pub use trace::{TraceOutput, TraceRequest, TraceResponse, TraceStep, trace_schema_json};
 pub use units::{Dimension, Quantity, UnitRequest, UnitResponse, units_schema_json};
 
