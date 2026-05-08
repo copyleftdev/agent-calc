@@ -2997,3 +2997,106 @@ fn eval_transcendental_bad_json_exits_2() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
 }
+
+fn simplify_run(input: &[u8]) -> serde_json::Value {
+    let mut child = Command::new(bin())
+        .arg("simplify")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(input).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn simplify_constant_folding_add() {
+    // 3 + 4 → 7
+    let json = simplify_run(
+        br#"{"expr":{"kind":"add","left":{"kind":"integer","value":"3"},"right":{"kind":"integer","value":"4"}}}"#,
+    );
+    assert_eq!(json["status"], "simplified");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind":"integer","value":"7"})
+    );
+}
+
+#[test]
+fn simplify_like_terms_collected_cli() {
+    // 2*x + 3*x → 5*x
+    let json = simplify_run(
+        br#"{"expr":{"kind":"add",
+            "left":{"kind":"mul","left":{"kind":"integer","value":"2"},"right":{"kind":"symbol","name":"x"}},
+            "right":{"kind":"mul","left":{"kind":"integer","value":"3"},"right":{"kind":"symbol","name":"x"}}}}"#,
+    );
+    assert_eq!(json["status"], "simplified");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind":"mul","left":{"kind":"integer","value":"5"},"right":{"kind":"symbol","name":"x"}})
+    );
+}
+
+#[test]
+fn simplify_double_neg_product_cli() {
+    // (-3) * (-4) → 12
+    let json = simplify_run(
+        br#"{"expr":{"kind":"mul",
+            "left":{"kind":"neg","value":{"kind":"integer","value":"3"}},
+            "right":{"kind":"neg","value":{"kind":"integer","value":"4"}}}}"#,
+    );
+    assert_eq!(json["status"], "simplified");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind":"integer","value":"12"})
+    );
+}
+
+#[test]
+fn simplify_same_base_power_product_cli() {
+    // x^2 * x^3 → x^5
+    let json = simplify_run(
+        br#"{"expr":{"kind":"mul",
+            "left":{"kind":"pow","base":{"kind":"symbol","name":"x"},"exponent":2},
+            "right":{"kind":"pow","base":{"kind":"symbol","name":"x"},"exponent":3}}}"#,
+    );
+    assert_eq!(json["status"], "simplified");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind":"pow","base":{"kind":"symbol","name":"x"},"exponent":5})
+    );
+}
+
+#[test]
+fn simplify_difference_of_squares_cli() {
+    // (a+b)*(a-b) → a^2 - b^2
+    let json = simplify_run(
+        br#"{"expr":{"kind":"mul",
+            "left":{"kind":"add","left":{"kind":"symbol","name":"a"},"right":{"kind":"symbol","name":"b"}},
+            "right":{"kind":"sub","left":{"kind":"symbol","name":"a"},"right":{"kind":"symbol","name":"b"}}}}"#,
+    );
+    assert_eq!(json["status"], "simplified");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind":"sub",
+            "left":{"kind":"pow","base":{"kind":"symbol","name":"a"},"exponent":2},
+            "right":{"kind":"pow","base":{"kind":"symbol","name":"b"},"exponent":2}})
+    );
+}
+
+#[test]
+fn simplify_cancel_added_then_subtracted_constant_cli() {
+    // (x + 3) - 3 → x
+    let json = simplify_run(
+        br#"{"expr":{"kind":"sub",
+            "left":{"kind":"add","left":{"kind":"symbol","name":"x"},"right":{"kind":"integer","value":"3"}},
+            "right":{"kind":"integer","value":"3"}}}"#,
+    );
+    assert_eq!(json["status"], "simplified");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind":"symbol","name":"x"})
+    );
+}

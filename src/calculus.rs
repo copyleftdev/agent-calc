@@ -721,7 +721,7 @@ mod tests {
         );
         assert_eq!(
             derivative_expr_only(div(integer(1), symbol("x"))),
-            div(sub(integer(0), integer(1)), pow(symbol("x"), 2))
+            div(integer(-1), pow(symbol("x"), 2))
         );
     }
 

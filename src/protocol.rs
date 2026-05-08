@@ -537,56 +537,171 @@ impl Expr {
             Expr::Add { left, right } => {
                 let left = left.simplify()?;
                 let right = right.simplify()?;
-                if is_zero_expr(&left)? {
-                    Ok(right)
-                } else if is_zero_expr(&right)? {
-                    Ok(left)
-                } else {
-                    Ok(Expr::Add {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    })
+                // Constant folding
+                if let (Some(l), Some(r)) = (literal_rational(&left)?, literal_rational(&right)?) {
+                    return l
+                        .checked_add(&r)
+                        .map(|v| rational_to_expr(&v))
+                        .map_err(|e| e.to_string());
                 }
+                if is_zero_expr(&left)? {
+                    return Ok(right);
+                }
+                if is_zero_expr(&right)? {
+                    return Ok(left);
+                }
+                // a*x + b*x → (a+b)*x  (collect like terms, constants on left of Mul)
+                if let (
+                    Expr::Mul {
+                        left: la,
+                        right: lx,
+                    },
+                    Expr::Mul {
+                        left: ra,
+                        right: rx,
+                    },
+                ) = (&left, &right)
+                    && lx == rx
+                    && let (Some(la_val), Some(ra_val)) =
+                        (literal_rational(la)?, literal_rational(ra)?)
+                {
+                    let sum = la_val.checked_add(&ra_val).map_err(|e| e.to_string())?;
+                    return Expr::Mul {
+                        left: Box::new(rational_to_expr(&sum)),
+                        right: lx.clone(),
+                    }
+                    .simplify();
+                }
+                Ok(Expr::Add {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
             }
             Expr::Sub { left, right } => {
                 let left = left.simplify()?;
                 let right = right.simplify()?;
-                if is_zero_expr(&right)? {
-                    Ok(left)
-                } else {
-                    Ok(Expr::Sub {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    })
+                // Constant folding
+                if let (Some(l), Some(r)) = (literal_rational(&left)?, literal_rational(&right)?) {
+                    return l
+                        .checked_sub(&r)
+                        .map(|v| rational_to_expr(&v))
+                        .map_err(|e| e.to_string());
                 }
+                if is_zero_expr(&right)? {
+                    return Ok(left);
+                }
+                // (x + a) - a → x
+                if let Expr::Add {
+                    left: al,
+                    right: ar,
+                } = &left
+                    && ar.as_ref() == &right
+                {
+                    return Ok(*al.clone());
+                }
+                Ok(Expr::Sub {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
             }
             Expr::Mul { left, right } => {
                 let left = left.simplify()?;
                 let right = right.simplify()?;
-                if is_zero_expr(&left)? || is_zero_expr(&right)? {
-                    Ok(integer_expr(0))
-                } else if is_one_expr(&left)? {
-                    Ok(right)
-                } else if is_one_expr(&right)? {
-                    Ok(left)
-                } else {
-                    Ok(Expr::Mul {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    })
+                // Constant folding
+                if let (Some(l), Some(r)) = (literal_rational(&left)?, literal_rational(&right)?) {
+                    return l
+                        .checked_mul(&r)
+                        .map(|v| rational_to_expr(&v))
+                        .map_err(|e| e.to_string());
                 }
+                if is_zero_expr(&left)? || is_zero_expr(&right)? {
+                    return Ok(integer_expr(0));
+                }
+                if is_one_expr(&left)? {
+                    return Ok(right);
+                }
+                if is_one_expr(&right)? {
+                    return Ok(left);
+                }
+                // (-a) * (-b) → a*b (re-simplify to catch constant folding)
+                if let (Expr::Neg { value: lv }, Expr::Neg { value: rv }) = (&left, &right) {
+                    return Expr::Mul {
+                        left: lv.clone(),
+                        right: rv.clone(),
+                    }
+                    .simplify();
+                }
+                // x^a * x^b → x^(a+b)
+                if let (
+                    Expr::Pow {
+                        base: lb,
+                        exponent: la,
+                    },
+                    Expr::Pow {
+                        base: rb,
+                        exponent: ra,
+                    },
+                ) = (&left, &right)
+                    && lb == rb
+                {
+                    let new_exp = (*la).checked_add(*ra).ok_or_else(|| {
+                        "exponent overflow in power-product simplification".to_owned()
+                    })?;
+                    return Expr::Pow {
+                        base: lb.clone(),
+                        exponent: new_exp,
+                    }
+                    .simplify();
+                }
+                // (a+b)*(a-b) → a^2 - b^2
+                if let (
+                    Expr::Add {
+                        left: a1,
+                        right: b1,
+                    },
+                    Expr::Sub {
+                        left: a2,
+                        right: b2,
+                    },
+                ) = (&left, &right)
+                    && a1 == a2
+                    && b1 == b2
+                {
+                    return Ok(Expr::Sub {
+                        left: Box::new(Expr::Pow {
+                            base: a1.clone(),
+                            exponent: 2,
+                        }),
+                        right: Box::new(Expr::Pow {
+                            base: b1.clone(),
+                            exponent: 2,
+                        }),
+                    });
+                }
+                Ok(Expr::Mul {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
             }
             Expr::Div { left, right } => {
                 let left = left.simplify()?;
                 let right = right.simplify()?;
-                if is_one_expr(&right)? {
-                    Ok(left)
-                } else {
-                    Ok(Expr::Div {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    })
+                // Constant folding (errors on div by zero)
+                if let (Some(l), Some(r)) = (literal_rational(&left)?, literal_rational(&right)?)
+                    && !r.is_zero()
+                {
+                    return l
+                        .checked_div(&r)
+                        .map(|v| rational_to_expr(&v))
+                        .map_err(|e| e.to_string());
                 }
+                if is_one_expr(&right)? {
+                    return Ok(left);
+                }
+                Ok(Expr::Div {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
             }
             Expr::Pow { base, exponent } => {
                 let base = base.simplify()?;
@@ -1218,6 +1333,19 @@ fn integer_expr(value: i32) -> Expr {
     }
 }
 
+fn rational_to_expr(r: &Rational) -> Expr {
+    if r.denominator().to_string() == "1" {
+        Expr::Integer {
+            value: r.numerator().to_string(),
+        }
+    } else {
+        Expr::Rational {
+            numerator: r.numerator().to_string(),
+            denominator: r.denominator().to_string(),
+        }
+    }
+}
+
 fn is_zero_expr(expr: &Expr) -> Result<bool, String> {
     Ok(match literal_rational(expr)? {
         Some(value) => value.is_zero(),
@@ -1267,4 +1395,147 @@ fn validate_bindings(bindings: &BTreeMap<String, Expr>) -> Result<(), String> {
             .map_err(|reason| format!("binding `{name}` is not exactly evaluable: {reason}"))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int(v: i32) -> Expr {
+        Expr::Integer {
+            value: v.to_string(),
+        }
+    }
+
+    fn sym(name: &str) -> Expr {
+        Expr::Symbol {
+            name: name.to_owned(),
+        }
+    }
+
+    fn add(l: Expr, r: Expr) -> Expr {
+        Expr::Add {
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+
+    fn sub(l: Expr, r: Expr) -> Expr {
+        Expr::Sub {
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+
+    fn mul(l: Expr, r: Expr) -> Expr {
+        Expr::Mul {
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+
+    fn div(l: Expr, r: Expr) -> Expr {
+        Expr::Div {
+            left: Box::new(l),
+            right: Box::new(r),
+        }
+    }
+
+    fn neg(v: Expr) -> Expr {
+        Expr::Neg { value: Box::new(v) }
+    }
+
+    fn pow(base: Expr, exp: i32) -> Expr {
+        Expr::Pow {
+            base: Box::new(base),
+            exponent: exp,
+        }
+    }
+
+    fn s(expr: Expr) -> Expr {
+        expr.simplify().unwrap()
+    }
+
+    #[test]
+    fn constant_folding_add_sub_mul_div() {
+        assert_eq!(s(add(int(3), int(4))), int(7));
+        assert_eq!(s(sub(int(7), int(3))), int(4));
+        assert_eq!(s(mul(int(3), int(4))), int(12));
+        assert_eq!(s(div(int(6), int(2))), int(3));
+        // Rational result: 1/2 + 1/3 = 5/6
+        let half = Expr::Rational {
+            numerator: "1".to_owned(),
+            denominator: "2".to_owned(),
+        };
+        let third = Expr::Rational {
+            numerator: "1".to_owned(),
+            denominator: "3".to_owned(),
+        };
+        let five_sixths = Expr::Rational {
+            numerator: "5".to_owned(),
+            denominator: "6".to_owned(),
+        };
+        assert_eq!(s(add(half, third)), five_sixths);
+    }
+
+    #[test]
+    fn like_terms_collected() {
+        // 2*x + 3*x → 5*x
+        assert_eq!(
+            s(add(mul(int(2), sym("x")), mul(int(3), sym("x")))),
+            mul(int(5), sym("x"))
+        );
+        // 7*y + (-2)*y → 5*y
+        assert_eq!(
+            s(add(mul(int(7), sym("y")), mul(int(-2), sym("y")))),
+            mul(int(5), sym("y"))
+        );
+    }
+
+    #[test]
+    fn double_neg_product_simplifies() {
+        // (-a) * (-b) → a*b
+        assert_eq!(
+            s(mul(neg(sym("a")), neg(sym("b")))),
+            mul(sym("a"), sym("b"))
+        );
+        // (-3) * (-4) → 12 (via constant folding after neg product)
+        assert_eq!(s(mul(neg(int(3)), neg(int(4)))), int(12));
+    }
+
+    #[test]
+    fn same_base_power_product_simplifies() {
+        // x^2 * x^3 → x^5
+        assert_eq!(s(mul(pow(sym("x"), 2), pow(sym("x"), 3))), pow(sym("x"), 5));
+        // x^2 * x^2 → x^4
+        assert_eq!(s(mul(pow(sym("x"), 2), pow(sym("x"), 2))), pow(sym("x"), 4));
+        // x^3 * x^0 → x^3 (x^0 simplifies to 1, then mul-by-one rule fires)
+        assert_eq!(s(mul(pow(sym("x"), 3), pow(sym("x"), 0))), pow(sym("x"), 3));
+    }
+
+    #[test]
+    fn difference_of_squares_simplifies() {
+        // (a+b)*(a-b) → a^2 - b^2
+        assert_eq!(
+            s(mul(add(sym("a"), sym("b")), sub(sym("a"), sym("b")))),
+            sub(pow(sym("a"), 2), pow(sym("b"), 2))
+        );
+        // (x+y)*(x-z): a matches but b differs — must NOT simplify to x^2-y^2
+        assert_eq!(
+            s(mul(add(sym("x"), sym("y")), sub(sym("x"), sym("z")))),
+            mul(add(sym("x"), sym("y")), sub(sym("x"), sym("z")))
+        );
+    }
+
+    #[test]
+    fn cancel_added_then_subtracted_constant() {
+        // (x + 3) - 3 → x
+        assert_eq!(s(sub(add(sym("x"), int(3)), int(3))), sym("x"));
+    }
+
+    #[test]
+    fn div_does_not_fold_division_by_zero() {
+        // 5/0 is left unsimplified (not errored, not panicked)
+        assert_eq!(div(int(5), int(0)).simplify(), Ok(div(int(5), int(0))));
+    }
 }
