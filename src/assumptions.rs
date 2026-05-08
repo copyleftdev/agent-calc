@@ -34,6 +34,11 @@ pub enum Assumption {
         op: ComparisonOp,
         value: Expr,
     },
+    Bounded {
+        symbol: String,
+        lower: Expr,
+        upper: Expr,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
@@ -41,11 +46,13 @@ pub enum Assumption {
 pub enum AssumptionDomain {
     Rational,
     Integer,
+    Natural,
     Nonzero,
     Positive,
     Negative,
     Nonnegative,
     Nonpositive,
+    UnitInterval,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -190,7 +197,7 @@ pub fn assumptions_schema_json() -> Value {
             "Pow": expr_defs["Pow"].clone(),
             "Neg": expr_defs["Neg"].clone(),
             "Domain": {
-                "enum": ["rational", "integer", "nonzero", "positive", "negative", "nonnegative", "nonpositive"]
+                "enum": ["rational", "integer", "natural", "nonzero", "positive", "negative", "nonnegative", "nonpositive", "unit_interval"]
             },
             "ComparisonOp": {
                 "enum": ["eq", "neq", "gt", "gte", "lt", "lte"]
@@ -198,7 +205,8 @@ pub fn assumptions_schema_json() -> Value {
             "Assumption": {
                 "oneOf": [
                     {"$ref": "#/$defs/DomainAssumption"},
-                    {"$ref": "#/$defs/CompareAssumption"}
+                    {"$ref": "#/$defs/CompareAssumption"},
+                    {"$ref": "#/$defs/BoundedAssumption"}
                 ]
             },
             "DomainAssumption": {
@@ -249,6 +257,17 @@ pub fn assumptions_schema_json() -> Value {
                     "intent": {"const": "entails"},
                     "assumptions": {"type": "array", "items": {"$ref": "#/$defs/Assumption"}},
                     "query": {"$ref": "#/$defs/Assumption"}
+                }
+            },
+            "BoundedAssumption": {
+                "type": "object",
+                "required": ["kind", "symbol", "lower", "upper"],
+                "additionalProperties": false,
+                "properties": {
+                    "kind": {"const": "bounded"},
+                    "symbol": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                    "lower": {"$ref": "#/$defs/Expr"},
+                    "upper": {"$ref": "#/$defs/Expr"}
                 }
             }
         }
@@ -303,6 +322,19 @@ impl Context {
                 let value = value.evaluate()?;
                 let facts = self.facts.entry(symbol.clone()).or_default();
                 apply_comparison(facts, *op, value)
+            }
+            Assumption::Bounded {
+                symbol,
+                lower,
+                upper,
+            } => {
+                validate_symbol(symbol)?;
+                let lower_val = lower.evaluate()?;
+                let upper_val = upper.evaluate()?;
+                let facts = self.facts.entry(symbol.clone()).or_default();
+                apply_comparison(facts, ComparisonOp::Gte, lower_val)?;
+                apply_comparison(facts, ComparisonOp::Lte, upper_val)?;
+                Ok(())
             }
         }
     }
@@ -376,6 +408,24 @@ impl Context {
                 let facts = self.fact_for(symbol);
                 comparison_entailment(symbol, *op, &value, &facts)
             }
+            Assumption::Bounded {
+                symbol,
+                lower,
+                upper,
+            } => {
+                validate_symbol(symbol)?;
+                let lower_val = lower.evaluate()?;
+                let upper_val = upper.evaluate()?;
+                let facts = self.fact_for(symbol);
+                let lower_ent =
+                    comparison_entailment(symbol, ComparisonOp::Gte, &lower_val, &facts)?;
+                let upper_ent =
+                    comparison_entailment(symbol, ComparisonOp::Lte, &upper_val, &facts)?;
+                let entailed = lower_ent.entailed && upper_ent.entailed;
+                let mut evidence = lower_ent.evidence;
+                evidence.extend(upper_ent.evidence);
+                Ok(Entailment { entailed, evidence })
+            }
         }
     }
 }
@@ -383,6 +433,10 @@ impl Context {
 fn apply_domain_bounds(facts: &mut SymbolFacts, domain: AssumptionDomain) -> Result<(), String> {
     match domain {
         AssumptionDomain::Rational | AssumptionDomain::Integer => Ok(()),
+        AssumptionDomain::Natural => {
+            facts.domains.insert(AssumptionDomain::Integer);
+            apply_comparison(facts, ComparisonOp::Gte, Rational::one())
+        }
         AssumptionDomain::Nonzero => {
             facts.excluded.insert(Rational::zero());
             Ok(())
@@ -394,6 +448,10 @@ fn apply_domain_bounds(facts: &mut SymbolFacts, domain: AssumptionDomain) -> Res
         }
         AssumptionDomain::Nonpositive => {
             apply_comparison(facts, ComparisonOp::Lte, Rational::zero())
+        }
+        AssumptionDomain::UnitInterval => {
+            apply_comparison(facts, ComparisonOp::Gte, Rational::zero())?;
+            apply_comparison(facts, ComparisonOp::Lte, Rational::one())
         }
     }
 }
@@ -504,11 +562,16 @@ fn domain_entailment(
     facts: &SymbolFacts,
 ) -> Result<Entailment, String> {
     let zero = Rational::zero();
+    let one = Rational::one();
     let entailed = match domain {
         AssumptionDomain::Rational => {
             !facts.domains.is_empty() || facts.lower.is_some() || facts.upper.is_some()
         }
         AssumptionDomain::Integer => false,
+        AssumptionDomain::Natural => {
+            facts.domains.contains(&AssumptionDomain::Integer)
+                && comparison_entailment(symbol, ComparisonOp::Gte, &one, facts)?.entailed
+        }
         AssumptionDomain::Nonzero => {
             facts.excluded.contains(&zero)
                 || comparison_entailment(symbol, ComparisonOp::Gt, &zero, facts)?.entailed
@@ -525,6 +588,10 @@ fn domain_entailment(
         }
         AssumptionDomain::Nonpositive => {
             comparison_entailment(symbol, ComparisonOp::Lte, &zero, facts)?.entailed
+        }
+        AssumptionDomain::UnitInterval => {
+            comparison_entailment(symbol, ComparisonOp::Gte, &zero, facts)?.entailed
+                && comparison_entailment(symbol, ComparisonOp::Lte, &one, facts)?.entailed
         }
     };
     Ok(Entailment {
@@ -969,6 +1036,165 @@ mod tests {
             domain("x", AssumptionDomain::Positive),
             false,
         );
+    }
+
+    fn bounded(symbol: &str, lo: i32, hi: i32) -> Assumption {
+        Assumption::Bounded {
+            symbol: symbol.to_owned(),
+            lower: int(lo),
+            upper: int(hi),
+        }
+    }
+
+    #[test]
+    fn natural_domain_applies_integer_and_lower_one_bound() {
+        // natural → lower bound ≥ 1 (inclusive)
+        assert_bounds(
+            vec![domain("x", AssumptionDomain::Natural)],
+            Some(("1", true)),
+            None,
+        );
+        // natural also inserts Integer into domains
+        match (AssumptionsRequest::Validate {
+            assumptions: vec![domain("x", AssumptionDomain::Natural)],
+        })
+        .evaluate()
+        {
+            AssumptionsResponse::Context { facts, .. } => {
+                assert!(facts[0].domains.contains(&AssumptionDomain::Integer));
+                assert!(facts[0].domains.contains(&AssumptionDomain::Natural));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn unit_interval_domain_applies_zero_one_bounds() {
+        assert_bounds(
+            vec![domain("x", AssumptionDomain::UnitInterval)],
+            Some(("0", true)),
+            Some(("1", true)),
+        );
+    }
+
+    #[test]
+    fn bounded_assumption_applies_inclusive_lower_and_upper() {
+        assert_bounds(
+            vec![bounded("x", 5, 10)],
+            Some(("5", true)),
+            Some(("10", true)),
+        );
+    }
+
+    #[test]
+    fn natural_entailment_examples() {
+        // integer ∧ >=1 → natural
+        assert_entails(
+            vec![
+                domain("x", AssumptionDomain::Integer),
+                cmp("x", ComparisonOp::Gte, 1),
+            ],
+            domain("x", AssumptionDomain::Natural),
+            true,
+        );
+        // integer alone is not enough (kills &&→|| mutation)
+        assert_entails(
+            vec![domain("x", AssumptionDomain::Integer)],
+            domain("x", AssumptionDomain::Natural),
+            false,
+        );
+        // >=1 alone is not enough (kills &&→|| mutation)
+        assert_entails(
+            vec![cmp("x", ComparisonOp::Gte, 1)],
+            domain("x", AssumptionDomain::Natural),
+            false,
+        );
+        // integer ∧ >=0 is not natural (0 ∉ ℕ; kills >=→== in bound check)
+        assert_entails(
+            vec![
+                domain("x", AssumptionDomain::Integer),
+                cmp("x", ComparisonOp::Gte, 0),
+            ],
+            domain("x", AssumptionDomain::Natural),
+            false,
+        );
+        // non_negative ∧ lte(10) does NOT entail positive (x could be 0)
+        assert_entails(
+            vec![
+                domain("x", AssumptionDomain::Nonnegative),
+                cmp("x", ComparisonOp::Lte, 10),
+            ],
+            domain("x", AssumptionDomain::Positive),
+            false,
+        );
+    }
+
+    #[test]
+    fn unit_interval_entailment_examples() {
+        // unit_interval ⊢ lte(1) — true
+        assert_entails(
+            vec![domain("x", AssumptionDomain::UnitInterval)],
+            cmp("x", ComparisonOp::Lte, 1),
+            true,
+        );
+        // unit_interval ⊢ gte(0) — true
+        assert_entails(
+            vec![domain("x", AssumptionDomain::UnitInterval)],
+            cmp("x", ComparisonOp::Gte, 0),
+            true,
+        );
+        // gte(0) ∧ lte(1) → unit_interval — true
+        assert_entails(
+            vec![
+                cmp("x", ComparisonOp::Gte, 0),
+                cmp("x", ComparisonOp::Lte, 1),
+            ],
+            domain("x", AssumptionDomain::UnitInterval),
+            true,
+        );
+        // gte(0) alone → NOT unit_interval (kills &&→|| mutation on upper check)
+        assert_entails(
+            vec![cmp("x", ComparisonOp::Gte, 0)],
+            domain("x", AssumptionDomain::UnitInterval),
+            false,
+        );
+        // lte(1) alone → NOT unit_interval (kills &&→|| mutation on lower check)
+        assert_entails(
+            vec![cmp("x", ComparisonOp::Lte, 1)],
+            domain("x", AssumptionDomain::UnitInterval),
+            false,
+        );
+        // nonneg ∧ lte(10) → NOT unit_interval (upper bound > 1)
+        assert_entails(
+            vec![
+                domain("x", AssumptionDomain::Nonnegative),
+                cmp("x", ComparisonOp::Lte, 10),
+            ],
+            domain("x", AssumptionDomain::UnitInterval),
+            false,
+        );
+    }
+
+    #[test]
+    fn bounded_assumption_entailment() {
+        // bounded(5,10) ⊢ gte(5) → true
+        assert_entails(
+            vec![bounded("x", 5, 10)],
+            cmp("x", ComparisonOp::Gte, 5),
+            true,
+        );
+        // bounded(5,10) ⊢ lte(10) → true
+        assert_entails(
+            vec![bounded("x", 5, 10)],
+            cmp("x", ComparisonOp::Lte, 10),
+            true,
+        );
+        // bounded(5,10) ⊢ bounded(5,10) → true (both bounds entailed)
+        assert_entails(vec![bounded("x", 5, 10)], bounded("x", 5, 10), true);
+        // bounded(5,10) ⊢ bounded(6,10) → false (gte(6) not entailed from lower=5)
+        assert_entails(vec![bounded("x", 5, 10)], bounded("x", 6, 10), false);
+        // bounded(5,10) ⊢ bounded(5,9) → false (lte(9) not entailed from upper=10)
+        assert_entails(vec![bounded("x", 5, 10)], bounded("x", 5, 9), false);
     }
 
     #[test]

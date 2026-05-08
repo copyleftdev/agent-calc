@@ -194,12 +194,18 @@ fn schema_assumptions_emits_assumptions_request_schema() {
         serde_json::json!([
             "rational",
             "integer",
+            "natural",
             "nonzero",
             "positive",
             "negative",
             "nonnegative",
-            "nonpositive"
+            "nonpositive",
+            "unit_interval"
         ])
+    );
+    assert_eq!(
+        json["$defs"]["BoundedAssumption"]["properties"]["kind"]["const"],
+        "bounded"
     );
 }
 
@@ -3099,4 +3105,61 @@ fn simplify_cancel_added_then_subtracted_constant_cli() {
         json["expr"],
         serde_json::json!({"kind":"symbol","name":"x"})
     );
+}
+
+fn assumptions_run(input: &[u8]) -> serde_json::Value {
+    let mut child = Command::new(bin())
+        .arg("assumptions")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.as_mut().unwrap().write_all(input).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn assumptions_natural_domain_cli() {
+    // natural(x) → lower bound = 1 and Integer domain asserted
+    let json = assumptions_run(
+        br#"{"intent":"validate","assumptions":[{"kind":"domain","symbol":"x","domain":"natural"}]}"#,
+    );
+    assert_eq!(json["status"], "context");
+    assert_eq!(json["facts"][0]["lower"]["value"]["display"], "1");
+    assert!(
+        json["facts"][0]["domains"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("integer"))
+    );
+}
+
+#[test]
+fn assumptions_unit_interval_domain_cli() {
+    // unit_interval(p) ⊢ lte(1)
+    let json = assumptions_run(
+        br#"{"intent":"entails",
+            "assumptions":[{"kind":"domain","symbol":"p","domain":"unit_interval"}],
+            "query":{"kind":"compare","symbol":"p","op":"lte","value":{"kind":"integer","value":"1"}}}"#,
+    );
+    assert_eq!(json["status"], "entailment");
+    assert_eq!(json["entailed"], true);
+}
+
+#[test]
+fn assumptions_bounded_kind_cli() {
+    // bounded(x, 5, 10) ⊢ gte(5) and lte(10)
+    let json = assumptions_run(
+        br#"{"intent":"entails",
+            "assumptions":[{"kind":"bounded","symbol":"x",
+                "lower":{"kind":"integer","value":"5"},
+                "upper":{"kind":"integer","value":"10"}}],
+            "query":{"kind":"bounded","symbol":"x",
+                "lower":{"kind":"integer","value":"5"},
+                "upper":{"kind":"integer","value":"10"}}}"#,
+    );
+    assert_eq!(json["status"], "entailment");
+    assert_eq!(json["entailed"], true);
 }
