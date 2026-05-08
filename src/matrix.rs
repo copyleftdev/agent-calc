@@ -29,7 +29,7 @@ pub enum MatrixRequest {
     },
     Solve {
         coefficients: MatrixInput,
-        constants: Vec<f64>,
+        constants: MatrixInput,
     },
 }
 
@@ -176,18 +176,23 @@ impl MatrixRequest {
                         coefficients.ncols()
                     ));
                 }
-                if constants.len() != coefficients.nrows() {
+                if constants.cols != 1 {
+                    return Err(format!(
+                        "solve constants must be a column vector (cols=1), got cols={}",
+                        constants.cols
+                    ));
+                }
+                let constants_mat = parse_matrix(constants)?;
+                if constants_mat.nrows() != coefficients.nrows() {
                     return Err(format!(
                         "solve constants length mismatch: got {}, expected {}",
-                        constants.len(),
+                        constants_mat.nrows(),
                         coefficients.nrows()
                     ));
                 }
-                if !constants.iter().all(|v| v.is_finite()) {
-                    return Err("matrix values must be finite".to_owned());
-                }
-                let constants = DVector::from_vec(constants.clone());
-                match coefficients.lu().solve(&constants) {
+                let constants_vec =
+                    DVector::from_vec(constants_mat.column(0).iter().copied().collect());
+                match coefficients.lu().solve(&constants_vec) {
                     Some(solution) => Ok(MatrixOutput::Vector(solution.iter().copied().collect())),
                     None => Err("solve failed: coefficient matrix is singular".to_owned()),
                 }
@@ -250,8 +255,8 @@ pub fn matrix_schema_json() -> Value {
                     "intent": {"const": "solve"},
                     "coefficients": {"$ref": "#/$defs/Matrix"},
                     "constants": {
-                        "type": "array",
-                        "items": {"type": "number"}
+                        "description": "Column vector: rows=n, cols=1, data=[...]. Consistent with all other MatrixInput fields.",
+                        "$ref": "#/$defs/Matrix"
                     }
                 }
             }
@@ -388,7 +393,7 @@ mod tests {
     fn solves_linear_system() {
         match (MatrixRequest::Solve {
             coefficients: m(2, 2, &[2.0, 1.0, 1.0, -1.0]),
-            constants: vec![5.0, 1.0],
+            constants: m(2, 1, &[5.0, 1.0]),
         })
         .evaluate()
         {
@@ -413,11 +418,20 @@ mod tests {
 
         let singular = MatrixRequest::Solve {
             coefficients: m(2, 2, &[1.0, 2.0, 2.0, 4.0]),
-            constants: vec![1.0, 2.0],
+            constants: m(2, 1, &[1.0, 2.0]),
         }
         .evaluate();
         assert!(
             matches!(singular, MatrixResponse::Error { reason, .. } if reason.contains("singular"))
+        );
+
+        let non_column = MatrixRequest::Solve {
+            coefficients: m(2, 2, &[1.0, 0.0, 0.0, 1.0]),
+            constants: m(2, 2, &[1.0, 0.0, 0.0, 1.0]),
+        }
+        .evaluate();
+        assert!(
+            matches!(non_column, MatrixResponse::Error { reason, .. } if reason.contains("cols=1"))
         );
     }
 

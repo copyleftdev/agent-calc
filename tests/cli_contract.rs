@@ -1927,3 +1927,85 @@ fn help_and_unknown_commands_have_stable_exit_behavior() {
             .contains("unknown command")
     );
 }
+
+// --- #17 schema consistency regression tests ---
+
+#[test]
+fn matrix_solve_accepts_matrix_input_for_constants() {
+    // Regression: constants was Vec<f64>; now MatrixInput like all other matrix fields.
+    let input = serde_json::json!({
+        "intent": "solve",
+        "coefficients": { "rows": 2, "cols": 2, "data": [2.0, 1.0, 1.0, -1.0] },
+        "constants":    { "rows": 2, "cols": 1, "data": [5.0, 1.0] }
+    });
+    let mut child = Command::new(bin())
+        .arg("matrix")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "vector");
+    let data = json["data"].as_array().unwrap();
+    assert!((data[0].as_f64().unwrap() - 2.0).abs() < 1e-10);
+    assert!((data[1].as_f64().unwrap() - 1.0).abs() < 1e-10);
+}
+
+#[test]
+fn stats_describe_sample_accepts_data_alias() {
+    // Regression: describe_sample only accepted `values`; `data` is now a valid alias.
+    let input = serde_json::json!({ "intent": "describe_sample", "data": [1.0, 2.0, 3.0] });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "sample_summary");
+    assert_eq!(json["n"], 3);
+    assert!((json["mean"].as_f64().unwrap() - 2.0).abs() < 1e-12);
+}
+
+#[test]
+fn complex_abs_accepts_modulus_alias() {
+    // Regression: modulus is now an alias for abs to avoid collision with the
+    // upcoming expression AST `abs` node.
+    let input = serde_json::json!({ "intent": "modulus", "value": { "re": 3.0, "im": 4.0 } });
+    let mut child = Command::new(bin())
+        .arg("complex")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "scalar");
+    assert!((json["value"].as_f64().unwrap() - 5.0).abs() < 1e-12);
+}

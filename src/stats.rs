@@ -9,12 +9,35 @@ use statrs::distribution::{Binomial, ContinuousCDF, Discrete, DiscreteCDF, Norma
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
 pub enum StatsRequest {
-    DescribeSample { values: Vec<f64> },
-    NormalCdf { mean: f64, std_dev: f64, x: f64 },
-    NormalQuantile { mean: f64, std_dev: f64, p: f64 },
-    StudentTInterval { values: Vec<f64>, confidence: f64 },
-    BinomialPmf { n: u64, p: f64, k: u64 },
-    BinomialCdf { n: u64, p: f64, k: u64 },
+    DescribeSample {
+        #[serde(alias = "data")]
+        values: Vec<f64>,
+    },
+    NormalCdf {
+        mean: f64,
+        std_dev: f64,
+        x: f64,
+    },
+    NormalQuantile {
+        mean: f64,
+        std_dev: f64,
+        p: f64,
+    },
+    StudentTInterval {
+        #[serde(alias = "data")]
+        values: Vec<f64>,
+        confidence: f64,
+    },
+    BinomialPmf {
+        n: u64,
+        p: f64,
+        k: u64,
+    },
+    BinomialCdf {
+        n: u64,
+        p: f64,
+        k: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

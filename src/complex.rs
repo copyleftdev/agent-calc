@@ -28,6 +28,7 @@ pub enum ComplexRequest {
     Conjugate {
         value: ComplexInput,
     },
+    #[serde(alias = "modulus")]
     Abs {
         value: ComplexInput,
     },
@@ -206,7 +207,7 @@ pub fn complex_schema_json() -> Value {
                 "required": ["intent", "value"],
                 "additionalProperties": false,
                 "properties": {
-                    "intent": {"enum": ["conjugate", "abs", "arg", "to_polar"]},
+                    "intent": {"enum": ["conjugate", "abs", "modulus", "arg", "to_polar"]},
                     "value": {"$ref": "#/$defs/Complex"}
                 }
             },
