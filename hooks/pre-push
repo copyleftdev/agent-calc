@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# agent-calc pre-push hook — mutation gate
+#
+# Runs cargo-mutants against any source files touched since the branch
+# diverged from main. Blocks the push if mutants survive.
+#
+# Only fires when pushing to main or when AGENT_CALC_MUTANTS=1 is set.
+# Feature branches skip mutation so iteration stays fast.
+#
+# Install: make install-hooks
+# Skip once: git push --no-verify
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YLW='\033[0;33m'
+RST='\033[0m'
+
+TARGET_BRANCH="main"
+
+# Read the push target from the pre-push arguments (stdin: local-ref local-sha remote-ref remote-sha)
+REMOTE_REF=""
+while read -r _local_ref _local_sha _remote_ref _remote_sha; do
+    REMOTE_REF="$_remote_ref"
+    break
+done
+
+# Only run mutation when pushing to main (or forced via env)
+if [ "${AGENT_CALC_MUTANTS:-0}" != "1" ]; then
+    if [[ "$REMOTE_REF" != "refs/heads/${TARGET_BRANCH}" ]]; then
+        printf "${YLW}pre-push${RST}  skipping mutation (not pushing to ${TARGET_BRANCH})\n"
+        printf "  To run manually: ${YLW}make mutants${RST}\n"
+        printf "  To force on this push: ${YLW}AGENT_CALC_MUTANTS=1 git push${RST}\n\n"
+        exit 0
+    fi
+fi
+
+printf "\nagent-calc pre-push — mutation gate\n\n"
+
+if ! command -v cargo-mutants &>/dev/null; then
+    printf "${RED}FAIL${RST}  cargo-mutants not installed\n"
+    printf "  Install: ${YLW}cargo install cargo-mutants --locked${RST}\n"
+    exit 1
+fi
+
+# Find source files changed relative to main
+CHANGED_FILES=$(git diff --name-only "$(git merge-base HEAD "origin/${TARGET_BRANCH}" 2>/dev/null || echo HEAD)" HEAD 2>/dev/null \
+    | grep '^src/.*\.rs$' | tr '\n' ' ')
+
+if [ -z "$CHANGED_FILES" ]; then
+    printf "${GRN}  ok${RST}  no src/ changes — skipping mutation run\n\n"
+    exit 0
+fi
+
+printf "  Changed files: ${YLW}%s${RST}\n\n" "$CHANGED_FILES"
+
+# Build the --file flags
+FILE_FLAGS=""
+for f in $CHANGED_FILES; do
+    FILE_FLAGS="$FILE_FLAGS --file $f"
+done
+
+printf "  Running: cargo mutants %s\n\n" "$FILE_FLAGS"
+
+if cargo mutants --timeout-multiplier 3.0 $FILE_FLAGS -- --locked; then
+    printf "\n${GRN}Mutation gate passed.${RST}\n\n"
+else
+    printf "\n${RED}Mutation gate failed — surviving mutants detected.${RST}\n"
+    printf "  Surviving mutants = weak properties. Strengthen them before pushing to main.\n"
+    printf "  Report: ${YLW}mutants.out/${RST}\n"
+    printf "  To skip (not recommended): ${YLW}git push --no-verify${RST}\n\n"
+    exit 1
+fi

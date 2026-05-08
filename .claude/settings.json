@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/ops/Project/agent-calc && if git diff --name-only HEAD 2>/dev/null | grep -q '\\.rs$' || git ls-files --others --exclude-standard 2>/dev/null | grep -q '\\.rs$'; then cargo check --all-targets --message-format=short 2>&1 | grep '^error' | head -8; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/ops/Project/agent-calc && changed=$(git diff --name-only HEAD 2>/dev/null | grep '\\.rs$' | wc -l); if [ \"$changed\" -gt 0 ]; then echo \"=== $changed Rust file(s) changed — run: make ci ===\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

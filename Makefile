@@ -170,6 +170,18 @@ uninstall-local: uninstall ## Explicit alias for local uninstall.
 .PHONY: reinstall
 reinstall: uninstall install ## Rebuild and reinstall the local binary.
 
+.PHONY: install-hooks
+install-hooks: ## Install git hooks from hooks/ via core.hooksPath (no file copying needed).
+	git config core.hooksPath hooks
+	@echo "git hooks active — hooks/ is now the hooks directory"
+	@echo "pre-commit: fmt + check + clippy + test + package + smoke"
+	@echo "pre-push:   mutation testing on changed src/ files (main only)"
+
+.PHONY: uninstall-hooks
+uninstall-hooks: ## Remove the core.hooksPath override and revert to .git/hooks/.
+	git config --unset core.hooksPath || true
+	@echo "hooks directory reverted to .git/hooks/"
+
 .PHONY: smoke
 smoke: build ## Run cheap CLI smoke checks against the debug binary.
 	"$(TARGET_DIR)/debug/$(BIN_NAME)" --version

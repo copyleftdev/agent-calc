@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# agent-calc pre-commit hook — fast quality gate
+#
+# Runs: fmt-check → type-check → clippy → tests → package → smoke
+# Mutation testing is intentionally excluded (too slow for every commit).
+# Run `make mutants` before marking a feature done.
+#
+# Install: make install-hooks
+# Skip once (emergencies only): git commit --no-verify
+
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YLW='\033[0;33m'
+RST='\033[0m'
+
+pass() { printf "${GRN}  ok${RST}  %s\n" "$1"; }
+fail() { printf "${RED}FAIL${RST}  %s\n" "$1"; }
+info() { printf "${YLW}    ${RST}  %s\n" "$1"; }
+
+step() {
+    local label="$1"; shift
+    if "$@" 2>/tmp/agent-calc-hook-err; then
+        pass "$label"
+    else
+        fail "$label"
+        cat /tmp/agent-calc-hook-err >&2
+        echo ""
+        printf "${RED}pre-commit blocked.${RST} Fix the above and try again.\n"
+        printf "To skip once (emergencies only): ${YLW}git commit --no-verify${RST}\n"
+        exit 1
+    fi
+}
+
+printf "\nagent-calc pre-commit\n\n"
+
+# --- 1. Format check ----------------------------------------------------------
+step "cargo fmt" \
+    cargo fmt --all -- --check
+
+# --- 2. Type check all targets ------------------------------------------------
+step "cargo check" \
+    cargo check --all-targets --quiet
+
+# --- 3. Clippy (warnings are errors) ------------------------------------------
+step "cargo clippy" \
+    cargo clippy --all-targets --quiet -- -D warnings
+
+# --- 4. Full test suite -------------------------------------------------------
+step "cargo test" \
+    cargo test --locked --quiet
+
+# --- 5. Package verification --------------------------------------------------
+step "cargo package" \
+    cargo package --allow-dirty --locked --offline --quiet
+
+# --- 6. Contract smoke checks -------------------------------------------------
+# Build the debug binary if needed (reuse what test already built)
+BIN="${ROOT}/target/debug/agent-calc"
+if [ ! -x "$BIN" ]; then
+    info "building debug binary for smoke checks..."
+    cargo build --quiet
+fi
+
+smoke_check() {
+    local label="$1"; local cmd="$2"; local check="$3"
+    local out
+    out=$(eval "$cmd" 2>/dev/null) || { fail "$label"; info "command failed"; exit 1; }
+    if echo "$out" | python3 -c "$check" 2>/dev/null; then
+        pass "$label"
+    else
+        fail "$label"
+        info "output: $out"
+        exit 1
+    fi
+}
+
+# contract_version present and starts with calc1/
+smoke_check \
+    "smoke: describe contract_version" \
+    "\"$BIN\" describe" \
+    "import sys,json; d=json.load(sys.stdin); assert d['contract_version'].startswith('calc1/'), d"
+
+# exact eval round-trip: 2+3=5
+smoke_check \
+    "smoke: eval 2+3=5" \
+    "printf '%s' '{\"expr\":{\"kind\":\"add\",\"left\":{\"kind\":\"integer\",\"value\":\"2\"},\"right\":{\"kind\":\"integer\",\"value\":\"3\"}}}' | \"$BIN\" eval" \
+    "import sys,json; d=json.load(sys.stdin); assert d['exact']['display']=='5', d"
+
+# typed failure: unbound symbol returns error code, exit 0
+smoke_check \
+    "smoke: unbound symbol → ErrorCode" \
+    "printf '%s' '{\"expr\":{\"kind\":\"symbol\",\"name\":\"x\"}}' | \"$BIN\" eval" \
+    "import sys,json; d=json.load(sys.stdin); assert 'code' in d, d"
+
+# bad JSON → exit 2 (not exit 0 or 1)
+if printf '%s' 'not-json' | "$BIN" eval >/dev/null 2>&1; then
+    fail "smoke: bad JSON should exit non-zero"
+    exit 1
+fi
+pass "smoke: bad JSON → exit 2"
+
+printf "\n${GRN}All checks passed.${RST}\n\n"
