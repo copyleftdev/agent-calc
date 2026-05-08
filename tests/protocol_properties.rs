@@ -1101,3 +1101,309 @@ proptest! {
         prop_assert_eq!(serde_json::to_value(powered).unwrap(), serde_json::to_value(expected).unwrap());
     }
 }
+
+// ── Cluster 1: evaluate_float must forward the exact value ──────────────────
+
+#[test]
+fn evaluate_float_matches_exact_rational_to_f64() {
+    let cases = [
+        ("3", "4", 0.75_f64),
+        ("1", "3", 1.0 / 3.0),
+        ("-7", "2", -3.5),
+        ("0", "1", 0.0),
+        ("22", "7", 22.0 / 7.0),
+    ];
+    for (n, d, expected) in cases {
+        let expr = Expr::Rational {
+            numerator: n.to_owned(),
+            denominator: d.to_owned(),
+        };
+        let got = expr.evaluate_float().unwrap();
+        assert!(
+            (got - expected).abs() < 1e-14,
+            "evaluate_float({n}/{d}) = {got}, expected {expected}"
+        );
+    }
+}
+
+// ── Cluster 2: approximate arithmetic (Sub, Div, Neg approx paths) ──────────
+
+fn approx_expr(expr: Expr) -> f64 {
+    match (EvalRequest {
+        expr,
+        decimal_places: 12,
+    })
+    .evaluate()
+    {
+        EvalResponse::Approximate { value, .. } => value,
+        other => panic!("expected approximate, got {other:?}"),
+    }
+}
+
+#[test]
+fn approx_sub_is_correct() {
+    // sin(1) - sin(1) should be 0 (both approx, sub path)
+    let expr = Expr::Sub {
+        left: Box::new(Expr::Sin {
+            value: Box::new(Expr::Integer {
+                value: "1".to_owned(),
+            }),
+        }),
+        right: Box::new(Expr::Sin {
+            value: Box::new(Expr::Integer {
+                value: "1".to_owned(),
+            }),
+        }),
+    };
+    assert!((approx_expr(expr) - 0.0).abs() < 1e-14);
+}
+
+#[test]
+fn approx_sub_mixed_is_correct() {
+    // exp(1) - 2 ≈ e - 2
+    let expr = Expr::Sub {
+        left: Box::new(Expr::Exp {
+            value: Box::new(Expr::Integer {
+                value: "1".to_owned(),
+            }),
+        }),
+        right: Box::new(Expr::Integer {
+            value: "2".to_owned(),
+        }),
+    };
+    let got = approx_expr(expr);
+    let expected = std::f64::consts::E - 2.0;
+    assert!((got - expected).abs() < 1e-12);
+}
+
+#[test]
+fn approx_div_is_correct() {
+    // exp(1) / 2 ≈ e/2
+    let expr = Expr::Div {
+        left: Box::new(Expr::Exp {
+            value: Box::new(Expr::Integer {
+                value: "1".to_owned(),
+            }),
+        }),
+        right: Box::new(Expr::Integer {
+            value: "2".to_owned(),
+        }),
+    };
+    let got = approx_expr(expr);
+    let expected = std::f64::consts::E / 2.0;
+    assert!((got - expected).abs() < 1e-12);
+}
+
+#[test]
+fn approx_neg_is_correct() {
+    // neg(exp(1)) ≈ -e
+    let expr = Expr::Neg {
+        value: Box::new(Expr::Exp {
+            value: Box::new(Expr::Integer {
+                value: "1".to_owned(),
+            }),
+        }),
+    };
+    let got = approx_expr(expr);
+    assert!((got + std::f64::consts::E).abs() < 1e-12);
+}
+
+// ── Cluster 3: sqrt approx branch boundary ──────────────────────────────────
+
+#[test]
+fn sqrt_of_negative_approx_returns_error() {
+    // neg(exp(1)) ≈ -e, so sqrt of that is an error
+    let expr = Expr::Sqrt {
+        value: Box::new(Expr::Neg {
+            value: Box::new(Expr::Exp {
+                value: Box::new(Expr::Integer {
+                    value: "1".to_owned(),
+                }),
+            }),
+        }),
+    };
+    let result = EvalRequest {
+        expr,
+        decimal_places: 12,
+    }
+    .evaluate();
+    assert!(
+        matches!(result, EvalResponse::Error { reason, .. } if reason.contains("negative")),
+        "expected error for sqrt of approx negative"
+    );
+}
+
+#[test]
+fn sqrt_of_positive_approx_is_correct() {
+    // exp(0) = 1.0 (approx), sqrt(1.0) = 1.0
+    let expr = Expr::Sqrt {
+        value: Box::new(Expr::Exp {
+            value: Box::new(Expr::Integer {
+                value: "0".to_owned(),
+            }),
+        }),
+    };
+    let got = approx_expr(expr);
+    assert!((got - 1.0).abs() < 1e-12);
+}
+
+#[test]
+fn sqrt_of_approx_zero_is_valid() {
+    // sin(0) = 0.0 (approx), sqrt(0.0) should succeed with result 0.0
+    // Kills the f < 0.0 → f <= 0.0 mutation: 0.0 is a valid sqrt argument
+    let expr = Expr::Sqrt {
+        value: Box::new(Expr::Sin {
+            value: Box::new(Expr::Integer {
+                value: "0".to_owned(),
+            }),
+        }),
+    };
+    let got = approx_expr(expr);
+    assert!((got - 0.0).abs() < 1e-12);
+}
+
+// ── Cluster 4: log boundary conditions ──────────────────────────────────────
+
+#[test]
+fn log_base_one_is_invalid() {
+    let expr = Expr::Log {
+        base: Box::new(Expr::Integer {
+            value: "1".to_owned(),
+        }),
+        value: Box::new(Expr::Integer {
+            value: "5".to_owned(),
+        }),
+    };
+    let result = EvalRequest {
+        expr,
+        decimal_places: 12,
+    }
+    .evaluate();
+    assert!(
+        matches!(result, EvalResponse::Error { .. }),
+        "log base 1 should be an error"
+    );
+}
+
+#[test]
+fn log_zero_argument_is_invalid() {
+    let expr = Expr::Log {
+        base: Box::new(Expr::Integer {
+            value: "2".to_owned(),
+        }),
+        value: Box::new(Expr::Integer {
+            value: "0".to_owned(),
+        }),
+    };
+    let result = EvalRequest {
+        expr,
+        decimal_places: 12,
+    }
+    .evaluate();
+    assert!(
+        matches!(result, EvalResponse::Error { .. }),
+        "log(2, 0) should be an error"
+    );
+}
+
+#[test]
+fn log_negative_argument_is_invalid() {
+    let expr = Expr::Log {
+        base: Box::new(Expr::Integer {
+            value: "2".to_owned(),
+        }),
+        value: Box::new(Expr::Integer {
+            value: "-1".to_owned(),
+        }),
+    };
+    let result = EvalRequest {
+        expr,
+        decimal_places: 12,
+    }
+    .evaluate();
+    assert!(
+        matches!(result, EvalResponse::Error { .. }),
+        "log(2, -1) should be an error"
+    );
+}
+
+#[test]
+fn log_change_of_base_is_correct() {
+    // log_10(100) = 2
+    let expr = Expr::Log {
+        base: Box::new(Expr::Integer {
+            value: "10".to_owned(),
+        }),
+        value: Box::new(Expr::Integer {
+            value: "100".to_owned(),
+        }),
+    };
+    let got = approx_expr(expr);
+    assert!(
+        (got - 2.0).abs() < 1e-12,
+        "log_10(100) should be 2, got {got}"
+    );
+}
+
+#[test]
+fn log_change_of_base_non_power_of_ten() {
+    // log_3(27) = 3
+    let expr = Expr::Log {
+        base: Box::new(Expr::Integer {
+            value: "3".to_owned(),
+        }),
+        value: Box::new(Expr::Integer {
+            value: "27".to_owned(),
+        }),
+    };
+    let got = approx_expr(expr);
+    assert!(
+        (got - 3.0).abs() < 1e-12,
+        "log_3(27) should be 3, got {got}"
+    );
+}
+
+// ── Cluster 5: validate_expr_limits depth on Log/Max/Min nodes ───────────────
+
+fn make_nested_max(depth: usize) -> Expr {
+    let leaf = Expr::Integer {
+        value: "1".to_owned(),
+    };
+    let mut expr = leaf;
+    for _ in 0..depth {
+        expr = Expr::Max {
+            left: Box::new(expr),
+            right: Box::new(Expr::Integer {
+                value: "0".to_owned(),
+            }),
+        };
+    }
+    expr
+}
+
+#[test]
+fn validate_depth_limit_enforced_on_max_node() {
+    use agent_calc::validate_expr_limits;
+    // depth 63 (64 levels including root) should pass
+    assert!(validate_expr_limits(&make_nested_max(63)).is_ok());
+    // depth 64 (65 levels) should fail
+    assert!(validate_expr_limits(&make_nested_max(64)).is_err());
+}
+
+#[test]
+fn validate_depth_limit_enforced_on_log_node() {
+    use agent_calc::validate_expr_limits;
+    let mut expr = Expr::Integer {
+        value: "1".to_owned(),
+    };
+    // Wrap in 64 nested Log nodes — should exceed depth limit
+    for _ in 0..64 {
+        expr = Expr::Log {
+            base: Box::new(Expr::Integer {
+                value: "2".to_owned(),
+            }),
+            value: Box::new(expr),
+        };
+    }
+    assert!(validate_expr_limits(&expr).is_err());
+}
