@@ -1539,6 +1539,78 @@ fn polynomial_rejects_irrational_quadratic_roots() {
     assert_eq!(json["reason"], "quadratic roots are irrational");
 }
 
+fn polynomial_solve_run(coefficients_json: &str) -> serde_json::Value {
+    let input = format!(
+        r#"{{"intent":"solve","polynomial":{{"variable":"x","coefficients":{coefficients_json}}}}}"#
+    );
+    let mut child = Command::new(bin())
+        .arg("polynomial")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn polynomial_solves_cubic_with_three_rational_roots() {
+    // x^3 - 6x^2 + 11x - 6 = 0 → roots: 1, 2, 3
+    let json = polynomial_solve_run(
+        r#"[{"kind":"integer","value":"-6"},{"kind":"integer","value":"11"},{"kind":"integer","value":"-6"},{"kind":"integer","value":"1"}]"#,
+    );
+    assert_eq!(json["status"], "roots");
+    assert_eq!(
+        json["roots"],
+        serde_json::json!([
+            {"numerator": "1", "denominator": "1", "display": "1"},
+            {"numerator": "2", "denominator": "1", "display": "2"},
+            {"numerator": "3", "denominator": "1", "display": "3"}
+        ])
+    );
+    assert_eq!(json["checks"][1]["name"], "degree_at_most_four");
+}
+
+#[test]
+fn polynomial_solves_quartic_with_four_rational_roots() {
+    // (x-1)(x-2)(x-3)(x-4) ascending: [24, -50, 35, -10, 1]
+    let json = polynomial_solve_run(
+        r#"[{"kind":"integer","value":"24"},{"kind":"integer","value":"-50"},{"kind":"integer","value":"35"},{"kind":"integer","value":"-10"},{"kind":"integer","value":"1"}]"#,
+    );
+    assert_eq!(json["status"], "roots");
+    assert_eq!(
+        json["roots"],
+        serde_json::json!([
+            {"numerator": "1", "denominator": "1", "display": "1"},
+            {"numerator": "2", "denominator": "1", "display": "2"},
+            {"numerator": "3", "denominator": "1", "display": "3"},
+            {"numerator": "4", "denominator": "1", "display": "4"}
+        ])
+    );
+}
+
+#[test]
+fn polynomial_rejects_cubic_with_no_rational_roots() {
+    // x^3 - 2 = 0: no rational roots
+    let json = polynomial_solve_run(
+        r#"[{"kind":"integer","value":"-2"},{"kind":"integer","value":"0"},{"kind":"integer","value":"0"},{"kind":"integer","value":"1"}]"#,
+    );
+    assert_eq!(json["status"], "error");
+    assert!(
+        json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("no rational roots")
+    );
+}
+
 #[test]
 fn polynomial_rejects_variable_mismatch() {
     let mut child = Command::new(bin())

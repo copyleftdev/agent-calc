@@ -3,7 +3,7 @@ use crate::{
     protocol::{ErrorCode, ExactRational, classify_error},
 };
 use num_bigint::BigInt;
-use num_traits::Signed;
+use num_traits::{One, Signed, Zero};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -333,8 +333,131 @@ fn solve_coefficients(coefficients: &[Rational]) -> Result<Vec<Rational>, String
         0 => solve_constant(coefficients),
         1 => solve_linear(coefficients),
         2 => solve_quadratic(coefficients),
+        3 | 4 => solve_by_rational_roots(coefficients),
         degree => Err(format!("polynomial degree {degree} is not supported")),
     }
+}
+
+fn solve_by_rational_roots(coefficients: &[Rational]) -> Result<Vec<Rational>, String> {
+    let scaled = scale_to_integers(coefficients)?;
+    let const_term = scaled[0].abs();
+    let lead_term = scaled.last().unwrap().abs();
+    let p_divs = positive_divisors(&const_term);
+    let q_divs = positive_divisors(&lead_term);
+
+    let mut candidates: Vec<Rational> = Vec::new();
+    for p in &p_divs {
+        for q in &q_divs {
+            for &sign in &[1i64, -1i64] {
+                let num = BigInt::from(sign) * p;
+                if let Ok(r) = Rational::new(num, q.clone()) {
+                    candidates.push(r);
+                }
+            }
+        }
+    }
+    candidates.sort();
+    candidates.dedup();
+
+    let mut found: Vec<Rational> = Vec::new();
+    let mut remaining = coefficients.to_vec();
+
+    'outer: while remaining.len() >= 4 {
+        for cand in &candidates {
+            if evaluate_coefficients(&remaining, cand)?.is_zero() {
+                found.push(cand.clone());
+                remaining = synthetic_div(&remaining, cand)?;
+                normalize_coefficients(&mut remaining);
+                continue 'outer;
+            }
+        }
+        break;
+    }
+
+    match remaining.len() - 1 {
+        2 => {
+            if let Ok(more) = solve_quadratic(&remaining) {
+                found.extend(more);
+            }
+        }
+        _ if found.is_empty() => {
+            return Err(format!(
+                "degree {} polynomial has no rational roots",
+                coefficients.len() - 1
+            ));
+        }
+        _ => {}
+    }
+
+    found.sort();
+    found.dedup();
+    Ok(found)
+}
+
+fn scale_to_integers(coefficients: &[Rational]) -> Result<Vec<BigInt>, String> {
+    let mut lcm = BigInt::one();
+    for c in coefficients {
+        let d = c.denominator().clone();
+        lcm = bigint_lcm(lcm, d);
+    }
+    coefficients
+        .iter()
+        .map(|c| {
+            let scaled = c.numerator() * (&lcm / c.denominator());
+            Ok(scaled)
+        })
+        .collect()
+}
+
+fn bigint_lcm(a: BigInt, b: BigInt) -> BigInt {
+    let g = bigint_gcd(a.abs(), b.abs());
+    if g.is_zero() {
+        BigInt::one()
+    } else {
+        a.abs() / g * b.abs()
+    }
+}
+
+fn bigint_gcd(mut a: BigInt, mut b: BigInt) -> BigInt {
+    while !b.is_zero() {
+        let t = b.clone();
+        b = a % &t;
+        a = t;
+    }
+    a
+}
+
+fn positive_divisors(n: &BigInt) -> Vec<BigInt> {
+    if n.is_zero() {
+        return vec![BigInt::one()];
+    }
+    let n_abs = n.abs();
+    let mut divs = Vec::new();
+    let mut i = BigInt::one();
+    while &i * &i <= n_abs {
+        if (&n_abs % &i).is_zero() {
+            divs.push(i.clone());
+            let other = &n_abs / &i;
+            if other != i {
+                divs.push(other);
+            }
+        }
+        i += BigInt::one();
+    }
+    divs
+}
+
+fn synthetic_div(coefficients: &[Rational], root: &Rational) -> Result<Vec<Rational>, String> {
+    let n = coefficients.len() - 1;
+    let mut result = vec![Rational::zero(); n];
+    result[n - 1] = coefficients[n].clone();
+    for i in (0..n - 1).rev() {
+        result[i] = result[i + 1]
+            .checked_mul(root)
+            .and_then(|v| v.checked_add(&coefficients[i + 1]))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(result)
 }
 
 fn solve_constant(coefficients: &[Rational]) -> Result<Vec<Rational>, String> {
@@ -461,7 +584,7 @@ fn solve_checks() -> Vec<PolynomialCheck> {
             passed: true,
         },
         PolynomialCheck {
-            name: "degree_at_most_two".to_owned(),
+            name: "degree_at_most_four".to_owned(),
             passed: true,
         },
         PolynomialCheck {
@@ -535,7 +658,7 @@ mod tests {
                             passed: true,
                         },
                         PolynomialCheck {
-                            name: "degree_at_most_two".to_owned(),
+                            name: "degree_at_most_four".to_owned(),
                             passed: true,
                         },
                         PolynomialCheck {
@@ -763,12 +886,200 @@ mod tests {
             .evaluate(),
             PolynomialResponse::Error { reason, .. } if reason == "quadratic has no real rational roots"
         ));
+        // degree 5 is still unsupported
         assert!(matches!(
             (PolynomialRequest::Solve {
-                polynomial: poly(vec![int(1), int(0), int(0), int(1)]),
+                polynomial: poly(vec![int(1), int(0), int(0), int(0), int(0), int(1)]),
             })
             .evaluate(),
-            PolynomialResponse::Error { reason, .. } if reason == "polynomial degree 3 is not supported"
+            PolynomialResponse::Error { reason, .. } if reason == "polynomial degree 5 is not supported"
         ));
+        // x^3 + 1 has no rational roots (x = -1 is a root actually... wait)
+        // x^3 - 2 = 0: only irrational roots
+        assert!(matches!(
+            (PolynomialRequest::Solve {
+                polynomial: poly(vec![int(-2), int(0), int(0), int(1)]),
+            })
+            .evaluate(),
+            PolynomialResponse::Error { reason, .. } if reason.contains("no rational roots")
+        ));
+    }
+
+    #[test]
+    fn solves_cubic_equations_with_rational_roots() {
+        // x^3 - 6x^2 + 11x - 6 = 0 → roots: 1, 2, 3
+        // coefficients ascending: [-6, 11, -6, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(-6), int(11), int(-6), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["1", "2", "3"]
+        );
+        // x^3 - x = x(x-1)(x+1) → roots: -1, 0, 1
+        // ascending: [0, -1, 0, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(0), int(-1), int(0), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["-1", "0", "1"]
+        );
+        // (x-2)^3 = x^3 - 6x^2 + 12x - 8 → triple root at 2
+        // ascending: [-8, 12, -6, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(-8), int(12), int(-6), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["2"]
+        );
+    }
+
+    #[test]
+    fn solves_quartic_equations_with_rational_roots() {
+        // (x-1)(x-2)(x-3)(x-4) = x^4 - 10x^3 + 35x^2 - 50x + 24
+        // ascending: [24, -50, 35, -10, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(24), int(-50), int(35), int(-10), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["1", "2", "3", "4"]
+        );
+        // x^4 - 1 = (x-1)(x+1)(x^2+1) → rational roots: -1, 1
+        // ascending: [-1, 0, 0, 0, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(-1), int(0), int(0), int(0), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["-1", "1"]
+        );
+    }
+
+    #[test]
+    fn solves_cubic_with_one_rational_and_irrational_pair() {
+        // (x-2)(x^2+1) = x^3 - 2x^2 + x - 2 → one rational root: 2
+        // ascending: [-2, 1, -2, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(-2), int(1), int(-2), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["2"]
+        );
+        // (x-3)(x^2+2): root 3 requires other=6/2=3 from positive_divisors
+        // (kills positive_divisors / → * mutation which would miss root 3)
+        // ascending: [-6, 2, -3, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(-6), int(2), int(-3), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["3"]
+        );
+    }
+
+    #[test]
+    fn solves_quartic_with_one_rational_and_irrational_cubic_factor() {
+        // (x-1)(x^3+2): quartic with 1 rational root; cubic factor has no rational roots
+        // kills "replace match guard found.is_empty() with true" mutation
+        // ascending: [-2, 2, 0, -1, 1]
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly(vec![int(-2), int(2), int(0), int(-1), int(1)]),
+                }
+                .evaluate()
+            ),
+            vec!["1"]
+        );
+    }
+
+    #[test]
+    fn solves_cubic_with_rational_coefficients() {
+        // (1/2)x^3 - 3x^2 + (11/2)x - 3 = 0 → multiply by 2 → roots 1, 2, 3
+        // kills scale_to_integers, bigint_lcm, bigint_gcd mutations (lcm = 2 ≠ 1)
+        let half = Expr::Rational {
+            numerator: "1".to_owned(),
+            denominator: "2".to_owned(),
+        };
+        let eleven_halves = Expr::Rational {
+            numerator: "11".to_owned(),
+            denominator: "2".to_owned(),
+        };
+        let poly_input = PolynomialInput {
+            variable: "x".to_owned(),
+            coefficients: vec![int(-3), eleven_halves, int(-3), half],
+        };
+        assert_eq!(
+            roots(
+                PolynomialRequest::Solve {
+                    polynomial: poly_input
+                }
+                .evaluate()
+            ),
+            vec!["1", "2", "3"]
+        );
+    }
+
+    #[test]
+    fn bigint_gcd_computes_correctly() {
+        assert_eq!(
+            bigint_gcd(BigInt::from(12), BigInt::from(8)),
+            BigInt::from(4)
+        );
+        assert_eq!(
+            bigint_gcd(BigInt::from(7), BigInt::from(3)),
+            BigInt::from(1)
+        );
+        assert_eq!(
+            bigint_gcd(BigInt::from(0), BigInt::from(5)),
+            BigInt::from(5)
+        );
+    }
+
+    #[test]
+    fn bigint_lcm_computes_correctly() {
+        assert_eq!(
+            bigint_lcm(BigInt::from(4), BigInt::from(6)),
+            BigInt::from(12)
+        );
+        assert_eq!(
+            bigint_lcm(BigInt::from(3), BigInt::from(7)),
+            BigInt::from(21)
+        );
+        assert_eq!(
+            bigint_lcm(BigInt::from(2), BigInt::from(2)),
+            BigInt::from(2)
+        );
+    }
+
+    #[test]
+    fn scale_to_integers_uses_lcm_of_denominators() {
+        // lcm(3, 2) = 6: coeff 1/3 → 2, coeff 1/2 → 3
+        let coeffs = vec![
+            Rational::new(1i64, 3i64).unwrap(),
+            Rational::new(1i64, 2i64).unwrap(),
+        ];
+        assert_eq!(
+            scale_to_integers(&coeffs).unwrap(),
+            vec![BigInt::from(2), BigInt::from(3)]
+        );
     }
 }
