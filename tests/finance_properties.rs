@@ -18,6 +18,7 @@ fn exact_display(response: FinanceResponse) -> String {
     match response {
         FinanceResponse::Value { exact, .. } => exact.display,
         FinanceResponse::Error { reason, .. } => panic!("expected finance value: {reason}"),
+        other => panic!("unexpected response variant: {other:?}"),
     }
 }
 
@@ -44,6 +45,7 @@ proptest! {
                 denominator: exact.denominator,
             },
             FinanceResponse::Error { reason, .. } => panic!("expected future value: {reason}"),
+            other => panic!("unexpected response variant: {other:?}"),
         };
 
         let present = exact_display(FinanceRequest::PresentValue {
