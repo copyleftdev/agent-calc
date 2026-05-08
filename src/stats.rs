@@ -4213,4 +4213,118 @@ mod tests {
         assert_eq!(result.len(), 3);
         assert!((result[0] - 2.0).abs() < 1e-12);
     }
+
+    // ── serde default coverage ────────────────────────────────────────────────
+
+    #[test]
+    fn default_period_via_json_is_3_not_mutant() {
+        // period=0 and period=1 both error ("period must be at least 2").
+        // Only default=3 returns TimeSeries. Kills: replace default_period with 0, 1.
+        let req: StatsRequest =
+            serde_json::from_str(r#"{"intent":"time_series","method":"sma","values":[1,2,3,4,5]}"#)
+                .unwrap();
+        match req.evaluate() {
+            StatsResponse::TimeSeries { result, .. } => {
+                assert_eq!(result.len(), 3, "period=3 gives n-period+1=3 outputs");
+                assert!((result[0] - 2.0).abs() < 1e-12);
+            }
+            other => panic!("period default must be 3 (not 0 or 1), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn default_max_lag_via_json_is_10_not_mutant() {
+        // For n=5 values, default max_lag=10 → effective_max=4 → 5 ACF outputs.
+        // max_lag=0 → 1 output; max_lag=1 → 2 outputs. Kills: replace default_max_lag with 0, 1.
+        let req: StatsRequest = serde_json::from_str(
+            r#"{"intent":"time_series","method":"autocorr","values":[1,2,3,4,5]}"#,
+        )
+        .unwrap();
+        match req.evaluate() {
+            StatsResponse::TimeSeries { result, .. } => {
+                assert_eq!(
+                    result.len(),
+                    5,
+                    "default max_lag=10 clamped to n-1=4 → 5 outputs"
+                );
+            }
+            other => panic!("expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn default_smoothing_via_json_is_0_3_not_mutant() {
+        // smoothing=0.0, 1.0, -1.0 all error; only default=0.3 succeeds.
+        // Also checks exact ema[1]=0.3*4+0.7*1=1.9 to distinguish 0.3 from other values.
+        // Kills: replace default_smoothing with 0.0, 1.0, -1.0.
+        let req: StatsRequest =
+            serde_json::from_str(r#"{"intent":"time_series","method":"ema","values":[1,4,9,16]}"#)
+                .unwrap();
+        match req.evaluate() {
+            StatsResponse::TimeSeries { result, .. } => {
+                assert_eq!(result.len(), 4);
+                assert!(
+                    (result[1] - 1.9).abs() < 1e-12,
+                    "smoothing=0.3: ema[1]=0.3*4+0.7*1=1.9, got {}",
+                    result[1]
+                );
+            }
+            other => panic!("smoothing default 0.3 must succeed, got {other:?}"),
+        }
+    }
+
+    // ── len=2 boundary ───────────────────────────────────────────────────────
+
+    #[test]
+    fn ts_two_element_values_succeeds() {
+        // len=2 must succeed. Kills < → <= in ts_validate (would error for len=2).
+        assert!(matches!(
+            (StatsRequest::TimeSeries {
+                method: TimeSeriesIntent::Ema,
+                values: vec![1.0, 3.0],
+                period: 3,
+                max_lag: 1,
+                smoothing: 0.5,
+            })
+            .evaluate(),
+            StatsResponse::TimeSeries { .. }
+        ));
+    }
+
+    // ── SMA period=2 boundary ────────────────────────────────────────────────
+
+    #[test]
+    fn sma_period_two_exact() {
+        // period=2 must succeed. Kills < → <= on period guard (would error for period=2).
+        // [1,2,3] period=2 → [(1+2)/2, (2+3)/2] = [1.5, 2.5]
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Sma,
+            values: vec![1.0, 2.0, 3.0],
+            period: 2,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 1.5).abs() < 1e-12, "sma[0]={}", result[0]);
+        assert!((result[1] - 2.5).abs() < 1e-12, "sma[1]={}", result[1]);
+    }
+
+    // ── autocorr max_lag clamping ────────────────────────────────────────────
+
+    #[test]
+    fn autocorr_max_lag_clamped_to_n_minus_one() {
+        // n=4, max_lag=10: effective lags 0..=3 → 4 outputs.
+        // n-1 → n+1 mutant: k=5 causes underflow panic → caught.
+        // n-1 → n/1 mutant: min(10,4)=4 → k=4 yields empty sum, 5 outputs → assert_eq fails.
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Autocorr,
+            values: vec![1.0, 2.0, 3.0, 4.0],
+            period: 3,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(result.len(), 4, "lags 0..=3 for n=4, clamped by n-1");
+    }
 }
