@@ -1,0 +1,6 @@
+[advisories]
+ignore = [
+    # Transitive through nalgebra/simba and argmin. RustSec marks paste as
+    # unmaintained, not vulnerable; keep this visible until upstreams remove it.
+    "RUSTSEC-2024-0436",
+]
