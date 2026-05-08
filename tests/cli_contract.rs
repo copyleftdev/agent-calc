@@ -130,6 +130,20 @@ fn schema_complex_emits_complex_request_schema() {
 }
 
 #[test]
+fn schema_number_emits_number_request_schema() {
+    let output = Command::new(bin())
+        .arg("schema")
+        .arg("number")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["title"], "agent-calc calc1 number-theory request");
+    assert_eq!(json["$defs"]["Gcd"]["type"], "object");
+}
+
+#[test]
 fn schema_simplify_emits_symbolic_request_schema() {
     let output = Command::new(bin())
         .arg("schema")
@@ -3301,4 +3315,51 @@ fn polynomial_isolate_roots_finds_two_intervals() {
     assert_eq!(json["intervals"].as_array().unwrap().len(), 2);
     assert!(json["intervals"][0]["lower"]["display"].is_string());
     assert!(json["intervals"][0]["upper"]["display"].is_string());
+}
+
+#[test]
+fn number_reads_stdin_and_computes_gcd() {
+    let mut child = Command::new(bin())
+        .arg("number")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(br#"{"intent":"gcd","a":"48","b":"18"}"#)
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "value");
+    assert_eq!(json["result"], "6");
+}
+
+#[test]
+fn number_reads_stdin_and_rejects_zero_modulus() {
+    let mut child = Command::new(bin())
+        .arg("number")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(br#"{"intent":"mod","a":"10","b":"0"}"#)
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "error");
 }

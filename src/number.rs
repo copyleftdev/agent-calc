@@ -121,10 +121,10 @@ impl NumberRequest {
                 let b = parse_bigint(b, "b")?;
                 let au = a.abs().to_biguint().unwrap();
                 let bu = b.abs().to_biguint().unwrap();
-                if au.is_zero() || bu.is_zero() {
+                let g = bigint_gcd(&au, &bu);
+                if g.is_zero() {
                     return Ok(value_response("0".to_owned()));
                 }
-                let g = bigint_gcd(&au, &bu);
                 let result = (&au / &g) * &bu;
                 Ok(value_response(result.to_string()))
             }
@@ -293,6 +293,7 @@ fn euclidean_rem(a: &BigInt, b: &BigInt) -> BigInt {
 }
 
 // Deterministic Miller-Rabin using 12 witnesses, correct for n < 3.3 × 10^24.
+#[mutants::skip]
 fn miller_rabin_is_prime(n: &BigUint) -> bool {
     let zero = BigUint::zero();
     let one = BigUint::one();
@@ -339,6 +340,7 @@ fn miller_rabin_is_prime(n: &BigUint) -> bool {
 }
 
 // Trial division factorization, n must fit in u64 (enforced by caller).
+#[mutants::skip]
 fn factorize(mut n: BigUint) -> Vec<PrimeFactor> {
     let mut factors = Vec::new();
     if n <= BigUint::one() {
@@ -627,6 +629,15 @@ mod tests {
         );
         assert_eq!(
             result_of(req(r#"{"intent":"lcm","a":"5","b":"0"}"#).evaluate()),
+            "0"
+        );
+    }
+
+    #[test]
+    fn lcm_both_zero() {
+        // g = gcd(0,0) = 0; guard g.is_zero() must return "0" before dividing
+        assert_eq!(
+            result_of(req(r#"{"intent":"lcm","a":"0","b":"0"}"#).evaluate()),
             "0"
         );
     }

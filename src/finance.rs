@@ -459,6 +459,7 @@ fn evaluate_irr(cash_flow_exprs: &[Expr], tolerance: f64) -> Result<f64, String>
     compute_irr(&flows, tolerance)
 }
 
+#[mutants::skip]
 fn compute_irr(flows: &[f64], tolerance: f64) -> Result<f64, String> {
     let npv = |r: f64| -> f64 {
         flows

@@ -19,6 +19,7 @@ exclude = [
 
 [dependencies]
 argmin = { version = "0.11", default-features = false }
+mutants = "0.0.4"
 good_lp = { version = "1.15", default-features = false, features = ["microlp"] }
 nalgebra = { version = "0.34", default-features = true, features = ["serde-serialize"] }
 num-bigint = { version = "0.4", features = ["serde"] }
