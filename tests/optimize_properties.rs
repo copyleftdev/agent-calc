@@ -22,7 +22,7 @@ proptest! {
         }).evaluate() {
             OptimizeResponse::Optimum { minimizer, minimum, .. } => {
                 let analytic_minimum = c - a * vertex * vertex;
-                prop_assert!((minimizer - vertex).abs() <= 1e-4);
+                prop_assert!((minimizer[0] - vertex).abs() <= 1e-4);
                 prop_assert!((minimum - analytic_minimum).abs() <= analytic_minimum.abs().max(1.0) * 1e-6);
             }
             other => panic!("expected optimum response, got {other:?}"),

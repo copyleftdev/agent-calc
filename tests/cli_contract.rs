@@ -98,7 +98,10 @@ fn schema_optimize_emits_optimize_request_schema() {
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["title"], "agent-calc calc1 optimize request");
-    assert_eq!(json["$defs"]["Quadratic"]["type"], "object");
+    assert_eq!(
+        json["$defs"]["Objective"]["oneOf"][0]["properties"]["kind"]["const"],
+        "quadratic"
+    );
 }
 
 #[test]
@@ -2330,7 +2333,7 @@ fn optimize_reads_stdin_and_minimizes_quadratic() {
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["status"], "optimum");
-    assert!((json["minimizer"].as_f64().unwrap() - 3.0).abs() < 1e-6);
+    assert!((json["minimizer"][0].as_f64().unwrap() - 3.0).abs() < 1e-6);
     assert!(json["minimum"].as_f64().unwrap().abs() < 1e-6);
 }
 

@@ -28,7 +28,10 @@ pub use inequality::{
     inequality_schema_json,
 };
 pub use matrix::{MatrixInput, MatrixRequest, MatrixResponse, matrix_schema_json};
-pub use optimize::{Objective, OptimizeRequest, OptimizeResponse, optimize_schema_json};
+pub use optimize::{
+    NdObjective, Objective, OptimizeCheck, OptimizeExactness, OptimizeRequest, OptimizeResponse,
+    optimize_schema_json,
+};
 pub use polynomial::{
     PolynomialInput, PolynomialRequest, PolynomialResponse, polynomial_schema_json,
 };
