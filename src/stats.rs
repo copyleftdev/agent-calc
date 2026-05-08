@@ -2930,6 +2930,34 @@ mod tests {
         }
     }
 
+    // ── default_alpha serde path ──────────────────────────────────────────────
+
+    #[test]
+    fn default_alpha_via_json_is_0_05_not_mutant() {
+        // Kills replace default_alpha with 0.0 / 1.0 / -1.0:
+        // alpha is stored in HypothesisTest and must equal 0.05 exactly.
+        // Also: t=3√2≈4.24, p≈0.013 — reject at 0.05 but not at 0.0.
+        let req: StatsRequest = serde_json::from_str(
+            r#"{"intent":"one_sample_t","sample":[1.0,2.0,3.0,4.0,5.0],"mu0":0.0}"#,
+        )
+        .unwrap();
+        match req.evaluate() {
+            StatsResponse::HypothesisTest {
+                alpha, reject_h0, ..
+            } => {
+                assert!(
+                    (alpha - 0.05).abs() < 1e-12,
+                    "default alpha must be 0.05, got {alpha}"
+                );
+                assert!(
+                    reject_h0,
+                    "alpha=0.0 never rejects; alpha=1.0 always rejects when p<1"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     // ── one-sample t ─────────────────────────────────────────────────────────
 
     #[test]
