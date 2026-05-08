@@ -36,6 +36,7 @@ impl Describe {
                 "describe-contract",
                 "emit-json-schema",
                 "evaluate-exact-rational-expressions",
+                "evaluate-transcendental-expression-nodes",
                 "simplify-symbolic-expressions",
                 "emit-machine-readable-computation-traces",
                 "substitute-symbolic-bindings",
@@ -127,6 +128,68 @@ pub enum Expr {
     Neg {
         value: Box<Expr>,
     },
+    Sqrt {
+        value: Box<Expr>,
+    },
+    Exp {
+        value: Box<Expr>,
+    },
+    Ln {
+        value: Box<Expr>,
+    },
+    Sin {
+        value: Box<Expr>,
+    },
+    Cos {
+        value: Box<Expr>,
+    },
+    Tan {
+        value: Box<Expr>,
+    },
+    Abs {
+        value: Box<Expr>,
+    },
+    Floor {
+        value: Box<Expr>,
+    },
+    Ceil {
+        value: Box<Expr>,
+    },
+    Round {
+        value: Box<Expr>,
+    },
+    Log {
+        base: Box<Expr>,
+        value: Box<Expr>,
+    },
+    Max {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Min {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Exactness {
+    ApproximateF64,
+}
+
+enum EvalOutput {
+    Exact(Rational),
+    Approx(f64),
+}
+
+impl EvalOutput {
+    fn to_f64(&self) -> f64 {
+        match self {
+            EvalOutput::Exact(r) => r.to_f64(),
+            EvalOutput::Approx(f) => *f,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -179,6 +242,12 @@ pub enum EvalResponse {
         decimal: String,
         checks: Vec<Check>,
     },
+    Approximate {
+        contract_version: String,
+        value: f64,
+        exactness: Exactness,
+        checks: Vec<Check>,
+    },
     Error {
         contract_version: String,
         code: ErrorCode,
@@ -226,8 +295,8 @@ impl EvalRequest {
             }
         }
 
-        match self.expr.evaluate() {
-            Ok(value) => EvalResponse::Solved {
+        match self.expr.evaluate_output() {
+            Ok(EvalOutput::Exact(value)) => EvalResponse::Solved {
                 contract_version: CONTRACT_VERSION.to_owned(),
                 exact: ExactRational {
                     numerator: value.numerator().to_string(),
@@ -238,6 +307,15 @@ impl EvalRequest {
                 checks: vec![Check {
                     name: "canonical_rational_form".to_owned(),
                     passed: value.denominator() > &BigInt::zero(),
+                }],
+            },
+            Ok(EvalOutput::Approx(value)) => EvalResponse::Approximate {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                value,
+                exactness: Exactness::ApproximateF64,
+                checks: vec![Check {
+                    name: "evaluated_as_f64".to_owned(),
+                    passed: value.is_finite(),
                 }],
             },
             Err(reason) => EvalResponse::Error {
@@ -251,34 +329,163 @@ impl EvalRequest {
 
 impl Expr {
     pub fn evaluate(&self) -> Result<Rational, String> {
+        match self.evaluate_output()? {
+            EvalOutput::Exact(r) => Ok(r),
+            EvalOutput::Approx(_) => Err(
+                "expression contains transcendental operations and cannot be evaluated to an exact rational".to_owned(),
+            ),
+        }
+    }
+
+    pub fn evaluate_float(&self) -> Result<f64, String> {
+        Ok(self.evaluate_output()?.to_f64())
+    }
+
+    fn evaluate_output(&self) -> Result<EvalOutput, String> {
         match self {
-            Expr::Integer { value } => Rational::parse_integer(value).map_err(|e| e.to_string()),
+            Expr::Integer { value } => Ok(EvalOutput::Exact(
+                Rational::parse_integer(value).map_err(|e| e.to_string())?,
+            )),
             Expr::Rational {
                 numerator,
                 denominator,
-            } => Rational::parse(numerator, denominator).map_err(|e| e.to_string()),
+            } => Ok(EvalOutput::Exact(
+                Rational::parse(numerator, denominator).map_err(|e| e.to_string())?,
+            )),
             Expr::Symbol { name } => Err(format!("unbound symbol `{name}`")),
-            Expr::Add { left, right } => left
-                .evaluate()?
-                .checked_add(&right.evaluate()?)
-                .map_err(|e| e.to_string()),
-            Expr::Sub { left, right } => left
-                .evaluate()?
-                .checked_sub(&right.evaluate()?)
-                .map_err(|e| e.to_string()),
-            Expr::Mul { left, right } => left
-                .evaluate()?
-                .checked_mul(&right.evaluate()?)
-                .map_err(|e| e.to_string()),
-            Expr::Div { left, right } => left
-                .evaluate()?
-                .checked_div(&right.evaluate()?)
-                .map_err(|e| e.to_string()),
-            Expr::Pow { base, exponent } => base
-                .evaluate()?
-                .checked_pow_i32(*exponent)
-                .map_err(|e| e.to_string()),
-            Expr::Neg { value } => value.evaluate()?.checked_neg().map_err(|e| e.to_string()),
+            Expr::Add { left, right } => {
+                let l = left.evaluate_output()?;
+                let r = right.evaluate_output()?;
+                match (l, r) {
+                    (EvalOutput::Exact(lv), EvalOutput::Exact(rv)) => Ok(EvalOutput::Exact(
+                        lv.checked_add(&rv).map_err(|e| e.to_string())?,
+                    )),
+                    (l, r) => Ok(EvalOutput::Approx(l.to_f64() + r.to_f64())),
+                }
+            }
+            Expr::Sub { left, right } => {
+                let l = left.evaluate_output()?;
+                let r = right.evaluate_output()?;
+                match (l, r) {
+                    (EvalOutput::Exact(lv), EvalOutput::Exact(rv)) => Ok(EvalOutput::Exact(
+                        lv.checked_sub(&rv).map_err(|e| e.to_string())?,
+                    )),
+                    (l, r) => Ok(EvalOutput::Approx(l.to_f64() - r.to_f64())),
+                }
+            }
+            Expr::Mul { left, right } => {
+                let l = left.evaluate_output()?;
+                let r = right.evaluate_output()?;
+                match (l, r) {
+                    (EvalOutput::Exact(lv), EvalOutput::Exact(rv)) => Ok(EvalOutput::Exact(
+                        lv.checked_mul(&rv).map_err(|e| e.to_string())?,
+                    )),
+                    (l, r) => Ok(EvalOutput::Approx(l.to_f64() * r.to_f64())),
+                }
+            }
+            Expr::Div { left, right } => {
+                let l = left.evaluate_output()?;
+                let r = right.evaluate_output()?;
+                match (l, r) {
+                    (EvalOutput::Exact(lv), EvalOutput::Exact(rv)) => Ok(EvalOutput::Exact(
+                        lv.checked_div(&rv).map_err(|e| e.to_string())?,
+                    )),
+                    (l, r) => {
+                        let rv = r.to_f64();
+                        if rv == 0.0 {
+                            return Err("division by zero".to_owned());
+                        }
+                        Ok(EvalOutput::Approx(l.to_f64() / rv))
+                    }
+                }
+            }
+            Expr::Pow { base, exponent } => match base.evaluate_output()? {
+                EvalOutput::Exact(rv) => Ok(EvalOutput::Exact(
+                    rv.checked_pow_i32(*exponent).map_err(|e| e.to_string())?,
+                )),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.powi(*exponent))),
+            },
+            Expr::Neg { value } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(
+                    r.checked_neg().map_err(|e| e.to_string())?,
+                )),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(-f)),
+            },
+            Expr::Abs { value } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.abs())),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.abs())),
+            },
+            Expr::Floor { value } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.floor())),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.floor())),
+            },
+            Expr::Ceil { value } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.ceil())),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.ceil())),
+            },
+            Expr::Round { value } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.round())),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.round())),
+            },
+            Expr::Max { left, right } => {
+                let l = left.evaluate_output()?;
+                let r = right.evaluate_output()?;
+                match (l, r) {
+                    (EvalOutput::Exact(lv), EvalOutput::Exact(rv)) => {
+                        Ok(EvalOutput::Exact(if lv >= rv { lv } else { rv }))
+                    }
+                    (l, r) => Ok(EvalOutput::Approx(l.to_f64().max(r.to_f64()))),
+                }
+            }
+            Expr::Min { left, right } => {
+                let l = left.evaluate_output()?;
+                let r = right.evaluate_output()?;
+                match (l, r) {
+                    (EvalOutput::Exact(lv), EvalOutput::Exact(rv)) => {
+                        Ok(EvalOutput::Exact(if lv <= rv { lv } else { rv }))
+                    }
+                    (l, r) => Ok(EvalOutput::Approx(l.to_f64().min(r.to_f64()))),
+                }
+            }
+            Expr::Sqrt { value } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => {
+                    if r.is_negative() {
+                        return Err("sqrt of negative number".to_owned());
+                    }
+                    match r.exact_sqrt() {
+                        Some(s) => Ok(EvalOutput::Exact(s)),
+                        None => Ok(EvalOutput::Approx(r.to_f64().sqrt())),
+                    }
+                }
+                EvalOutput::Approx(f) => {
+                    if f < 0.0 {
+                        return Err("sqrt of negative number".to_owned());
+                    }
+                    Ok(EvalOutput::Approx(f.sqrt()))
+                }
+            },
+            Expr::Exp { value } => Ok(EvalOutput::Approx(value.evaluate_output()?.to_f64().exp())),
+            Expr::Ln { value } => {
+                let f = value.evaluate_output()?.to_f64();
+                if f <= 0.0 {
+                    return Err("ln argument must be positive".to_owned());
+                }
+                Ok(EvalOutput::Approx(f.ln()))
+            }
+            Expr::Sin { value } => Ok(EvalOutput::Approx(value.evaluate_output()?.to_f64().sin())),
+            Expr::Cos { value } => Ok(EvalOutput::Approx(value.evaluate_output()?.to_f64().cos())),
+            Expr::Tan { value } => Ok(EvalOutput::Approx(value.evaluate_output()?.to_f64().tan())),
+            Expr::Log { base, value } => {
+                let b = base.evaluate_output()?.to_f64();
+                let v = value.evaluate_output()?.to_f64();
+                if b <= 0.0 || b == 1.0 {
+                    return Err("log base must be positive and not equal to 1".to_owned());
+                }
+                if v <= 0.0 {
+                    return Err("log argument must be positive".to_owned());
+                }
+                Ok(EvalOutput::Approx(v.ln() / b.ln()))
+            }
         }
     }
 
@@ -379,6 +586,48 @@ impl Expr {
                     })
                 }
             }
+            Expr::Sqrt { value } => Ok(Expr::Sqrt {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Exp { value } => Ok(Expr::Exp {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Ln { value } => Ok(Expr::Ln {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Sin { value } => Ok(Expr::Sin {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Cos { value } => Ok(Expr::Cos {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Tan { value } => Ok(Expr::Tan {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Abs { value } => Ok(Expr::Abs {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Floor { value } => Ok(Expr::Floor {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Ceil { value } => Ok(Expr::Ceil {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Round { value } => Ok(Expr::Round {
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Log { base, value } => Ok(Expr::Log {
+                base: Box::new(base.simplify()?),
+                value: Box::new(value.simplify()?),
+            }),
+            Expr::Max { left, right } => Ok(Expr::Max {
+                left: Box::new(left.simplify()?),
+                right: Box::new(right.simplify()?),
+            }),
+            Expr::Min { left, right } => Ok(Expr::Min {
+                left: Box::new(left.simplify()?),
+                right: Box::new(right.simplify()?),
+            }),
         }
     }
 
@@ -421,6 +670,48 @@ impl Expr {
             }),
             Expr::Neg { value } => Ok(Expr::Neg {
                 value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Sqrt { value } => Ok(Expr::Sqrt {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Exp { value } => Ok(Expr::Exp {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Ln { value } => Ok(Expr::Ln {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Sin { value } => Ok(Expr::Sin {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Cos { value } => Ok(Expr::Cos {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Tan { value } => Ok(Expr::Tan {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Abs { value } => Ok(Expr::Abs {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Floor { value } => Ok(Expr::Floor {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Ceil { value } => Ok(Expr::Ceil {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Round { value } => Ok(Expr::Round {
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Log { base, value } => Ok(Expr::Log {
+                base: Box::new(base.substitute(bindings)?),
+                value: Box::new(value.substitute(bindings)?),
+            }),
+            Expr::Max { left, right } => Ok(Expr::Max {
+                left: Box::new(left.substitute(bindings)?),
+                right: Box::new(right.substitute(bindings)?),
+            }),
+            Expr::Min { left, right } => Ok(Expr::Min {
+                left: Box::new(left.substitute(bindings)?),
+                right: Box::new(right.substitute(bindings)?),
             }),
         }
     }
@@ -509,7 +800,20 @@ pub fn schema_json() -> Value {
                     { "$ref": "#/$defs/Mul" },
                     { "$ref": "#/$defs/Div" },
                     { "$ref": "#/$defs/Pow" },
-                    { "$ref": "#/$defs/Neg" }
+                    { "$ref": "#/$defs/Neg" },
+                    { "$ref": "#/$defs/Sqrt" },
+                    { "$ref": "#/$defs/Exp" },
+                    { "$ref": "#/$defs/Ln" },
+                    { "$ref": "#/$defs/Sin" },
+                    { "$ref": "#/$defs/Cos" },
+                    { "$ref": "#/$defs/Tan" },
+                    { "$ref": "#/$defs/Abs" },
+                    { "$ref": "#/$defs/Floor" },
+                    { "$ref": "#/$defs/Ceil" },
+                    { "$ref": "#/$defs/Round" },
+                    { "$ref": "#/$defs/Log" },
+                    { "$ref": "#/$defs/Max" },
+                    { "$ref": "#/$defs/Min" }
                 ]
             },
             "Integer": {
@@ -594,15 +898,59 @@ pub fn schema_json() -> Value {
                     }
                 }
             },
-            "Neg": {
+            "Neg": unary_value_def("neg"),
+            "Sqrt": unary_value_def("sqrt"),
+            "Exp":  unary_value_def("exp"),
+            "Ln":   unary_value_def("ln"),
+            "Sin":  unary_value_def("sin"),
+            "Cos":  unary_value_def("cos"),
+            "Tan":  unary_value_def("tan"),
+            "Abs":  unary_value_def("abs"),
+            "Floor": unary_value_def("floor"),
+            "Ceil":  unary_value_def("ceil"),
+            "Round": unary_value_def("round"),
+            "Log": {
                 "type": "object",
-                "required": ["kind", "value"],
+                "required": ["kind", "base", "value"],
                 "additionalProperties": false,
                 "properties": {
-                    "kind": { "const": "neg" },
+                    "kind": { "const": "log" },
+                    "base": { "$ref": "#/$defs/Expr" },
                     "value": { "$ref": "#/$defs/Expr" }
                 }
+            },
+            "Max": {
+                "type": "object",
+                "required": ["kind", "left", "right"],
+                "additionalProperties": false,
+                "properties": {
+                    "kind": { "const": "max" },
+                    "left": { "$ref": "#/$defs/Expr" },
+                    "right": { "$ref": "#/$defs/Expr" }
+                }
+            },
+            "Min": {
+                "type": "object",
+                "required": ["kind", "left", "right"],
+                "additionalProperties": false,
+                "properties": {
+                    "kind": { "const": "min" },
+                    "left": { "$ref": "#/$defs/Expr" },
+                    "right": { "$ref": "#/$defs/Expr" }
+                }
             }
+        }
+    })
+}
+
+fn unary_value_def(kind: &str) -> Value {
+    json!({
+        "type": "object",
+        "required": ["kind", "value"],
+        "additionalProperties": false,
+        "properties": {
+            "kind": { "const": kind },
+            "value": { "$ref": "#/$defs/Expr" }
         }
     })
 }
@@ -658,7 +1006,29 @@ fn validate_expr_limits_inner(expr: &Expr, depth: usize, nodes: &mut usize) -> R
             }
             validate_expr_limits_inner(base, depth + 1, nodes)
         }
-        Expr::Neg { value } => validate_expr_limits_inner(value, depth + 1, nodes),
+        Expr::Neg { value }
+        | Expr::Sqrt { value }
+        | Expr::Exp { value }
+        | Expr::Ln { value }
+        | Expr::Sin { value }
+        | Expr::Cos { value }
+        | Expr::Tan { value }
+        | Expr::Abs { value }
+        | Expr::Floor { value }
+        | Expr::Ceil { value }
+        | Expr::Round { value } => validate_expr_limits_inner(value, depth + 1, nodes),
+        Expr::Log { base, value }
+        | Expr::Max {
+            left: base,
+            right: value,
+        }
+        | Expr::Min {
+            left: base,
+            right: value,
+        } => {
+            validate_expr_limits_inner(base, depth + 1, nodes)?;
+            validate_expr_limits_inner(value, depth + 1, nodes)
+        }
     }
 }
 

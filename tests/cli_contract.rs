@@ -2009,3 +2009,86 @@ fn complex_abs_accepts_modulus_alias() {
     assert_eq!(json["status"], "scalar");
     assert!((json["value"].as_f64().unwrap() - 5.0).abs() < 1e-12);
 }
+
+// --- #14 transcendental expression node regression tests ---
+
+#[test]
+fn schema_emits_transcendental_node_defs() {
+    let output = Command::new(bin()).arg("schema").output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    // All 13 new node kinds are present as schema $defs
+    for kind in &[
+        "Sqrt", "Exp", "Ln", "Sin", "Cos", "Tan", "Abs", "Floor", "Ceil", "Round", "Log", "Max",
+        "Min",
+    ] {
+        assert!(
+            json["$defs"][kind].is_object(),
+            "missing $defs entry for {kind}"
+        );
+    }
+}
+
+#[test]
+fn eval_exp_returns_approximate() {
+    let input = serde_json::json!({
+        "expr": { "kind": "exp", "value": { "kind": "integer", "value": "1" } }
+    });
+    let mut child = Command::new(bin())
+        .arg("eval")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "approximate");
+    assert_eq!(json["exactness"], "approximate_f64");
+    // e ≈ 2.71828...
+    assert!((json["value"].as_f64().unwrap() - std::f64::consts::E).abs() < 1e-10);
+}
+
+#[test]
+fn eval_sqrt_of_perfect_square_is_exact() {
+    let input = serde_json::json!({
+        "expr": { "kind": "sqrt", "value": { "kind": "integer", "value": "9" } }
+    });
+    let mut child = Command::new(bin())
+        .arg("eval")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    assert_eq!(json["exact"]["display"], "3");
+}
+
+#[test]
+fn eval_transcendental_bad_json_exits_2() {
+    let output = Command::new(bin())
+        .arg("eval")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+        .wait_with_output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+}

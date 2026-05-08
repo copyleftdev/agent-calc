@@ -274,6 +274,7 @@ fn affine_expr(expr: &Expr, variable: &str) -> Result<Affine, String> {
         ),
         Expr::Pow { base, exponent } => pow_affine(base, *exponent, variable),
         Expr::Neg { value } => neg_affine(affine_expr(value, variable)?),
+        _ => Err("unsupported: nonlinear or transcendental expression in inequality".to_owned()),
     }
 }
 

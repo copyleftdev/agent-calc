@@ -132,6 +132,55 @@ impl Rational {
         })
     }
 
+    pub fn is_negative(&self) -> bool {
+        self.inner.numer().is_negative()
+    }
+
+    pub fn abs(&self) -> Self {
+        if self.is_negative() {
+            Self {
+                inner: -&self.inner,
+            }
+        } else {
+            self.clone()
+        }
+    }
+
+    pub fn floor(&self) -> Self {
+        let n = self.inner.numer();
+        let d = self.inner.denom();
+        Self::integer(floor_bigint(n, d))
+    }
+
+    pub fn ceil(&self) -> Self {
+        let n = self.inner.numer();
+        let d = self.inner.denom();
+        Self::integer(ceil_bigint(n, d))
+    }
+
+    pub fn round(&self) -> Self {
+        let n = self.inner.numer();
+        let d = self.inner.denom();
+        let two_n_plus_d = BigInt::from(2i32) * n + d;
+        let two_d = BigInt::from(2i32) * d;
+        Self::integer(floor_bigint(&two_n_plus_d, &two_d))
+    }
+
+    pub fn to_f64(&self) -> f64 {
+        self.inner.to_f64().unwrap_or(f64::NAN)
+    }
+
+    pub fn exact_sqrt(&self) -> Option<Self> {
+        if self.is_negative() {
+            return None;
+        }
+        let n = self.inner.numer();
+        let d = self.inner.denom();
+        let sqrt_n = exact_integer_sqrt(n)?;
+        let sqrt_d = exact_integer_sqrt(d)?;
+        Self::new(sqrt_n, sqrt_d).ok()
+    }
+
     pub fn decimal_string(&self, places: usize) -> String {
         let sign = if self.numerator().is_negative() {
             "-"
@@ -226,6 +275,44 @@ impl Neg for Rational {
 
 fn parse_bigint(value: &str) -> Result<BigInt, RationalError> {
     BigInt::from_str(value).map_err(|_| RationalError::InvalidInteger(value.to_owned()))
+}
+
+fn floor_bigint(n: &BigInt, d: &BigInt) -> BigInt {
+    let q = n / d;
+    let r = n % d;
+    if r.is_negative() {
+        q - BigInt::one()
+    } else {
+        q
+    }
+}
+
+fn ceil_bigint(n: &BigInt, d: &BigInt) -> BigInt {
+    let q = n / d;
+    let r = n % d;
+    if r.is_positive() {
+        q + BigInt::one()
+    } else {
+        q
+    }
+}
+
+fn exact_integer_sqrt(n: &BigInt) -> Option<BigInt> {
+    if n.is_zero() {
+        return Some(BigInt::zero());
+    }
+    if n.is_negative() {
+        return None;
+    }
+    let two = BigInt::from(2i32);
+    let mut x = n / &two + BigInt::one();
+    loop {
+        let next = (&x + n / &x) / &two;
+        if next >= x {
+            return if &x * &x == *n { Some(x) } else { None };
+        }
+        x = next;
+    }
 }
 
 #[cfg(test)]

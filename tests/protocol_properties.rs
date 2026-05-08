@@ -91,6 +91,9 @@ proptest! {
                 prop_assert_eq!(exact.denominator, rational.denominator().to_string());
                 prop_assert!(checks.iter().any(|check| check.name == "canonical_rational_form" && check.passed));
             }
+            EvalResponse::Approximate { value, .. } => {
+                prop_assert!(value.is_finite() || value.is_nan());
+            }
             EvalResponse::Error { reason, .. } => {
                 prop_assert!(
                     reason.contains("overflow")

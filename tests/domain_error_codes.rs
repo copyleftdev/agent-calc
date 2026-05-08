@@ -1,12 +1,12 @@
 use agent_calc::{
     Assumption, AssumptionDomain, AssumptionsRequest, AssumptionsResponse, CalculusRequest,
     CalculusResponse, ComplexInput, ComplexRequest, ComplexResponse, ConstraintRelation, Dimension,
-    ErrorCode, Expr, FinanceRequest, FinanceResponse, InequalityInput, InequalityRelation,
-    InequalityRequest, InequalityResponse, IntervalInput, IntervalRequest, IntervalResponse,
-    LinearConstraint, LinearRequest, LinearResponse, MatrixInput, MatrixRequest, MatrixResponse,
-    Objective, OptimizeRequest, OptimizeResponse, PolynomialInput, PolynomialRequest,
-    PolynomialResponse, Quantity, SolveRequest, SolveResponse, StatsRequest, StatsResponse,
-    TraceOutput, TraceRequest, TraceResponse, UnitRequest, UnitResponse,
+    ErrorCode, EvalRequest, EvalResponse, Expr, FinanceRequest, FinanceResponse, InequalityInput,
+    InequalityRelation, InequalityRequest, InequalityResponse, IntervalInput, IntervalRequest,
+    IntervalResponse, LinearConstraint, LinearRequest, LinearResponse, MatrixInput, MatrixRequest,
+    MatrixResponse, Objective, OptimizeRequest, OptimizeResponse, PolynomialInput,
+    PolynomialRequest, PolynomialResponse, Quantity, SolveRequest, SolveResponse, StatsRequest,
+    StatsResponse, TraceOutput, TraceRequest, TraceResponse, UnitRequest, UnitResponse,
 };
 
 fn integer(value: i32) -> Expr {
@@ -262,6 +262,88 @@ fn approximate_domains_emit_error_codes() {
         .evaluate(),
         ComplexResponse::Error {
             code: ErrorCode::DivisionByZero,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn transcendental_nodes_emit_error_codes() {
+    // sqrt of negative → InvalidInput
+    assert!(matches!(
+        EvalRequest {
+            expr: Expr::Sqrt {
+                value: Box::new(integer(-1))
+            },
+            decimal_places: 12,
+        }
+        .evaluate(),
+        EvalResponse::Error {
+            code: ErrorCode::InvalidInput,
+            ..
+        }
+    ));
+
+    // ln of non-positive → InvalidInput
+    assert!(matches!(
+        EvalRequest {
+            expr: Expr::Ln {
+                value: Box::new(integer(0))
+            },
+            decimal_places: 12,
+        }
+        .evaluate(),
+        EvalResponse::Error {
+            code: ErrorCode::InvalidInput,
+            ..
+        }
+    ));
+
+    // log with base <= 0 → InvalidInput
+    assert!(matches!(
+        EvalRequest {
+            expr: Expr::Log {
+                base: Box::new(integer(-2)),
+                value: Box::new(integer(8)),
+            },
+            decimal_places: 12,
+        }
+        .evaluate(),
+        EvalResponse::Error {
+            code: ErrorCode::InvalidInput,
+            ..
+        }
+    ));
+
+    // derivative of abs → Unsupported
+    assert!(matches!(
+        CalculusRequest::Derivative {
+            expr: Expr::Abs {
+                value: Box::new(symbol("x"))
+            },
+            variable: "x".to_owned(),
+        }
+        .evaluate(),
+        CalculusResponse::Error {
+            code: ErrorCode::Unsupported,
+            ..
+        }
+    ));
+
+    // transcendental in solve → Unsupported
+    assert!(matches!(
+        SolveRequest::Solve {
+            equation: agent_calc::EquationInput {
+                left: Expr::Exp {
+                    value: Box::new(symbol("x")),
+                },
+                right: integer(1),
+            },
+            variable: "x".to_owned(),
+        }
+        .evaluate(),
+        SolveResponse::Error {
+            code: ErrorCode::Unsupported,
             ..
         }
     ));

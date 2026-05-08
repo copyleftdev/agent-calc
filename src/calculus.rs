@@ -76,18 +76,7 @@ pub fn calculus_schema_json() -> Value {
             "expr": {"$ref": "#/$defs/Expr"},
             "variable": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
         },
-        "$defs": {
-            "Expr": expr_defs["Expr"].clone(),
-            "Integer": expr_defs["Integer"].clone(),
-            "Rational": expr_defs["Rational"].clone(),
-            "Symbol": expr_defs["Symbol"].clone(),
-            "Add": expr_defs["Add"].clone(),
-            "Sub": expr_defs["Sub"].clone(),
-            "Mul": expr_defs["Mul"].clone(),
-            "Div": expr_defs["Div"].clone(),
-            "Pow": expr_defs["Pow"].clone(),
-            "Neg": expr_defs["Neg"].clone()
-        }
+        "$defs": expr_defs
     })
 }
 
@@ -139,6 +128,52 @@ fn derivative_expr(expr: &Expr, variable: &str) -> Result<Expr, String> {
         }
         Expr::Pow { base, exponent } => derivative_power(base, *exponent, variable),
         Expr::Neg { value } => Ok(neg(derivative_expr(value, variable)?)),
+        // d/dx sqrt(f) = f' / (2 * sqrt(f))
+        Expr::Sqrt { value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(div(fp, mul(integer(2), sqrt(value.as_ref().clone()))))
+        }
+        // d/dx exp(f) = exp(f) * f'
+        Expr::Exp { value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(mul(exp(value.as_ref().clone()), fp))
+        }
+        // d/dx ln(f) = f' / f
+        Expr::Ln { value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(div(fp, value.as_ref().clone()))
+        }
+        // d/dx sin(f) = cos(f) * f'
+        Expr::Sin { value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(mul(cos(value.as_ref().clone()), fp))
+        }
+        // d/dx cos(f) = -sin(f) * f'
+        Expr::Cos { value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(neg(mul(sin(value.as_ref().clone()), fp)))
+        }
+        // d/dx tan(f) = f' / cos(f)^2
+        Expr::Tan { value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(div(fp, pow(cos(value.as_ref().clone()), 2)))
+        }
+        // d/dx log_b(f) = f' / (f * ln(b))
+        Expr::Log { base, value } => {
+            let fp = derivative_expr(value, variable)?;
+            Ok(div(
+                fp,
+                mul(value.as_ref().clone(), ln(base.as_ref().clone())),
+            ))
+        }
+        // abs, floor, ceil, round, max, min: not differentiable everywhere
+        Expr::Abs { .. } => Err("unsupported: abs is not differentiable everywhere".to_owned()),
+        Expr::Floor { .. } | Expr::Ceil { .. } | Expr::Round { .. } => {
+            Err("unsupported: floor/ceil/round are not differentiable".to_owned())
+        }
+        Expr::Max { .. } | Expr::Min { .. } => {
+            Err("unsupported: max/min are not differentiable everywhere".to_owned())
+        }
     }
 }
 
@@ -200,6 +235,36 @@ fn pow(base: Expr, exponent: i32) -> Expr {
 
 fn neg(value: Expr) -> Expr {
     Expr::Neg {
+        value: Box::new(value),
+    }
+}
+
+fn sqrt(value: Expr) -> Expr {
+    Expr::Sqrt {
+        value: Box::new(value),
+    }
+}
+
+fn exp(value: Expr) -> Expr {
+    Expr::Exp {
+        value: Box::new(value),
+    }
+}
+
+fn ln(value: Expr) -> Expr {
+    Expr::Ln {
+        value: Box::new(value),
+    }
+}
+
+fn sin(value: Expr) -> Expr {
+    Expr::Sin {
+        value: Box::new(value),
+    }
+}
+
+fn cos(value: Expr) -> Expr {
+    Expr::Cos {
         value: Box::new(value),
     }
 }

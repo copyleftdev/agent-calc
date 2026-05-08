@@ -31,9 +31,9 @@ pub use polynomial::{
     PolynomialInput, PolynomialRequest, PolynomialResponse, polynomial_schema_json,
 };
 pub use protocol::{
-    Describe, ErrorCode, EvalRequest, EvalResponse, Expr, SimplifyRequest, SimplifyResponse,
-    SubstituteRequest, SubstituteResponse, classify_error, schema_json, simplify_schema_json,
-    substitute_schema_json, validate_decimal_places, validate_expr_limits,
+    Describe, ErrorCode, EvalRequest, EvalResponse, Exactness, Expr, SimplifyRequest,
+    SimplifyResponse, SubstituteRequest, SubstituteResponse, classify_error, schema_json,
+    simplify_schema_json, substitute_schema_json, validate_decimal_places, validate_expr_limits,
 };
 pub use rational::Rational;
 pub use solve::{EquationInput, SolveRequest, SolveResponse, solve_schema_json};

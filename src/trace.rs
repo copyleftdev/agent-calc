@@ -156,18 +156,7 @@ pub fn trace_schema_json() -> Value {
                 "default": 12
             }
         },
-        "$defs": {
-            "Expr": defs["Expr"].clone(),
-            "Integer": defs["Integer"].clone(),
-            "Rational": defs["Rational"].clone(),
-            "Symbol": defs["Symbol"].clone(),
-            "Add": defs["Add"].clone(),
-            "Sub": defs["Sub"].clone(),
-            "Mul": defs["Mul"].clone(),
-            "Div": defs["Div"].clone(),
-            "Pow": defs["Pow"].clone(),
-            "Neg": defs["Neg"].clone()
-        }
+        "$defs": defs
     })
 }
 
@@ -243,6 +232,41 @@ fn eval_with_trace(expr: &Expr, trace: &mut TraceBuilder) -> Result<Rational, St
         Expr::Neg { value } => eval_with_trace(value, trace)?
             .checked_neg()
             .map_err(|e| e.to_string()),
+        Expr::Abs { value } => Ok(eval_with_trace(value, trace)?.abs()),
+        Expr::Floor { value } => Ok(eval_with_trace(value, trace)?.floor()),
+        Expr::Ceil { value } => Ok(eval_with_trace(value, trace)?.ceil()),
+        Expr::Round { value } => Ok(eval_with_trace(value, trace)?.round()),
+        Expr::Max { left, right } => {
+            let l = eval_with_trace(left, trace)?;
+            let r = eval_with_trace(right, trace)?;
+            Ok(if l >= r { l } else { r })
+        }
+        Expr::Min { left, right } => {
+            let l = eval_with_trace(left, trace)?;
+            let r = eval_with_trace(right, trace)?;
+            Ok(if l <= r { l } else { r })
+        }
+        Expr::Sqrt { value } => {
+            let v = eval_with_trace(value, trace)?;
+            if v.is_negative() {
+                return Err("sqrt of negative number".to_owned());
+            }
+            match v.exact_sqrt() {
+                Some(s) => Ok(s),
+                None => Err(
+                    "sqrt result is irrational; use the eval command for approximate_f64"
+                        .to_owned(),
+                ),
+            }
+        }
+        Expr::Exp { .. }
+        | Expr::Ln { .. }
+        | Expr::Sin { .. }
+        | Expr::Cos { .. }
+        | Expr::Tan { .. }
+        | Expr::Log { .. } => {
+            Err("transcendental node cannot be evaluated exactly; use the eval command".to_owned())
+        }
     };
 
     match &result {
@@ -344,6 +368,83 @@ fn simplify_with_trace(expr: &Expr, trace: &mut TraceBuilder) -> Result<Expr, St
             };
             Ok((output.clone(), simplify_rule(&normalized_input, &output)))
         }
+        Expr::Sqrt { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Sqrt { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Exp { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Exp { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Ln { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Ln { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Sin { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Sin { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Cos { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Cos { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Tan { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Tan { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Abs { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Abs { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Floor { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Floor { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Ceil { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Ceil { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Round { value } => {
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Round { value: Box::new(v) };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Log { base, value } => {
+            let b = simplify_with_trace(base, trace)?;
+            let v = simplify_with_trace(value, trace)?;
+            let out = Expr::Log {
+                base: Box::new(b),
+                value: Box::new(v),
+            };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Max { left, right } => {
+            let l = simplify_with_trace(left, trace)?;
+            let r = simplify_with_trace(right, trace)?;
+            let out = Expr::Max {
+                left: Box::new(l),
+                right: Box::new(r),
+            };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
+        Expr::Min { left, right } => {
+            let l = simplify_with_trace(left, trace)?;
+            let r = simplify_with_trace(right, trace)?;
+            let out = Expr::Min {
+                left: Box::new(l),
+                right: Box::new(r),
+            };
+            Ok((out.clone(), simplify_rule(expr, &out)))
+        }
     };
 
     match &result {
@@ -364,6 +465,19 @@ fn eval_rule(expr: &Expr) -> &'static str {
         Expr::Div { .. } => "eval.div",
         Expr::Pow { .. } => "eval.pow",
         Expr::Neg { .. } => "eval.neg",
+        Expr::Sqrt { .. } => "eval.sqrt",
+        Expr::Exp { .. } => "eval.exp",
+        Expr::Ln { .. } => "eval.ln",
+        Expr::Sin { .. } => "eval.sin",
+        Expr::Cos { .. } => "eval.cos",
+        Expr::Tan { .. } => "eval.tan",
+        Expr::Abs { .. } => "eval.abs",
+        Expr::Floor { .. } => "eval.floor",
+        Expr::Ceil { .. } => "eval.ceil",
+        Expr::Round { .. } => "eval.round",
+        Expr::Log { .. } => "eval.log",
+        Expr::Max { .. } => "eval.max",
+        Expr::Min { .. } => "eval.min",
     }
 }
 
@@ -422,6 +536,19 @@ fn simplify_rule(input: &Expr, output: &Expr) -> &'static str {
                 "simplify.neg_recurse"
             }
         }
+        Expr::Sqrt { .. } => "simplify.sqrt_recurse",
+        Expr::Exp { .. } => "simplify.exp_recurse",
+        Expr::Ln { .. } => "simplify.ln_recurse",
+        Expr::Sin { .. } => "simplify.sin_recurse",
+        Expr::Cos { .. } => "simplify.cos_recurse",
+        Expr::Tan { .. } => "simplify.tan_recurse",
+        Expr::Abs { .. } => "simplify.abs_recurse",
+        Expr::Floor { .. } => "simplify.floor_recurse",
+        Expr::Ceil { .. } => "simplify.ceil_recurse",
+        Expr::Round { .. } => "simplify.round_recurse",
+        Expr::Log { .. } => "simplify.log_recurse",
+        Expr::Max { .. } => "simplify.max_recurse",
+        Expr::Min { .. } => "simplify.min_recurse",
     }
 }
 
@@ -436,6 +563,19 @@ fn simplify_rule_for_input(input: &Expr) -> &'static str {
         Expr::Div { .. } => "simplify.div_recurse",
         Expr::Pow { .. } => "simplify.pow_recurse",
         Expr::Neg { .. } => "simplify.neg_recurse",
+        Expr::Sqrt { .. } => "simplify.sqrt_recurse",
+        Expr::Exp { .. } => "simplify.exp_recurse",
+        Expr::Ln { .. } => "simplify.ln_recurse",
+        Expr::Sin { .. } => "simplify.sin_recurse",
+        Expr::Cos { .. } => "simplify.cos_recurse",
+        Expr::Tan { .. } => "simplify.tan_recurse",
+        Expr::Abs { .. } => "simplify.abs_recurse",
+        Expr::Floor { .. } => "simplify.floor_recurse",
+        Expr::Ceil { .. } => "simplify.ceil_recurse",
+        Expr::Round { .. } => "simplify.round_recurse",
+        Expr::Log { .. } => "simplify.log_recurse",
+        Expr::Max { .. } => "simplify.max_recurse",
+        Expr::Min { .. } => "simplify.min_recurse",
     }
 }
 
