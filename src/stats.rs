@@ -38,6 +38,35 @@ pub enum StatsRequest {
         p: f64,
         k: u64,
     },
+    Correlation {
+        x: Vec<f64>,
+        y: Vec<f64>,
+    },
+    LinearRegression {
+        x: Vec<f64>,
+        y: Vec<f64>,
+    },
+    Percentile {
+        values: Vec<f64>,
+        p: f64,
+    },
+    Mode {
+        values: Vec<f64>,
+    },
+    Rank {
+        values: Vec<f64>,
+        method: RankMethod,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RankMethod {
+    Average,
+    Min,
+    Max,
+    First,
+    Last,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -51,6 +80,12 @@ pub enum StatsResponse {
         std_dev: f64,
         min: f64,
         max: f64,
+        median: f64,
+        q1: f64,
+        q3: f64,
+        iqr: f64,
+        skewness: f64,
+        kurtosis: f64,
         exactness: StatsExactness,
         checks: Vec<StatsCheck>,
     },
@@ -72,6 +107,41 @@ pub enum StatsResponse {
         mean: f64,
         lower: f64,
         upper: f64,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    Correlation {
+        contract_version: String,
+        pearson_r: f64,
+        n: usize,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    Regression {
+        contract_version: String,
+        slope: f64,
+        intercept: f64,
+        r_squared: f64,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    Percentile {
+        contract_version: String,
+        value: f64,
+        p: f64,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    Mode {
+        contract_version: String,
+        values: Vec<f64>,
+        frequency: usize,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    Ranks {
+        contract_version: String,
+        ranks: Vec<f64>,
         exactness: StatsExactness,
         checks: Vec<StatsCheck>,
     },
@@ -105,6 +175,12 @@ impl StatsRequest {
                 std_dev: summary.std_dev,
                 min: summary.min,
                 max: summary.max,
+                median: summary.median,
+                q1: summary.q1,
+                q3: summary.q3,
+                iqr: summary.iqr,
+                skewness: summary.skewness,
+                kurtosis: summary.kurtosis,
                 exactness: StatsExactness::ApproximateF64,
                 checks: default_checks(),
             },
@@ -131,6 +207,45 @@ impl StatsRequest {
                 mean,
                 lower,
                 upper,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::CorrelationResult { pearson_r, n }) => StatsResponse::Correlation {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                pearson_r,
+                n,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::RegressionResult {
+                slope,
+                intercept,
+                r_squared,
+            }) => StatsResponse::Regression {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                slope,
+                intercept,
+                r_squared,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::PercentileValue { value, p }) => StatsResponse::Percentile {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                value,
+                p,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::ModeResult { values, frequency }) => StatsResponse::Mode {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                values,
+                frequency,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::RanksResult(ranks)) => StatsResponse::Ranks {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                ranks,
                 exactness: StatsExactness::ApproximateF64,
                 checks: default_checks(),
             },
@@ -183,6 +298,57 @@ impl StatsRequest {
                 let binomial = binomial(*n, *p)?;
                 Ok(StatsOutput::Probability(binomial.cdf(*k)))
             }
+            StatsRequest::Correlation { x, y } => {
+                let (pearson_r, n) = correlation(x, y)?;
+                Ok(StatsOutput::CorrelationResult { pearson_r, n })
+            }
+            StatsRequest::LinearRegression { x, y } => {
+                let (slope, intercept, r_squared) = linear_regression(x, y)?;
+                Ok(StatsOutput::RegressionResult {
+                    slope,
+                    intercept,
+                    r_squared,
+                })
+            }
+            StatsRequest::Percentile { values, p } => {
+                if values.is_empty() {
+                    return Err("values must contain at least one value".to_owned());
+                }
+                if !values.iter().all(|v| v.is_finite()) {
+                    return Err("values must be finite".to_owned());
+                }
+                if !p.is_finite() || *p < 0.0 || *p > 100.0 {
+                    return Err("p must be in [0, 100]".to_owned());
+                }
+                let mut sorted = values.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                Ok(StatsOutput::PercentileValue {
+                    value: percentile_sorted(&sorted, *p),
+                    p: *p,
+                })
+            }
+            StatsRequest::Mode { values } => {
+                if values.is_empty() {
+                    return Err("values must contain at least one value".to_owned());
+                }
+                if !values.iter().all(|v| v.is_finite()) {
+                    return Err("values must be finite".to_owned());
+                }
+                let (modal_values, frequency) = compute_mode(values);
+                Ok(StatsOutput::ModeResult {
+                    values: modal_values,
+                    frequency,
+                })
+            }
+            StatsRequest::Rank { values, method } => {
+                if values.is_empty() {
+                    return Err("values must contain at least one value".to_owned());
+                }
+                if !values.iter().all(|v| v.is_finite()) {
+                    return Err("values must be finite".to_owned());
+                }
+                Ok(StatsOutput::RanksResult(compute_ranks(values, *method)))
+            }
         }
     }
 }
@@ -201,7 +367,12 @@ pub fn stats_schema_json() -> Value {
             {"$ref": "#/$defs/NormalQuantile"},
             {"$ref": "#/$defs/StudentTInterval"},
             {"$ref": "#/$defs/BinomialPmf"},
-            {"$ref": "#/$defs/BinomialCdf"}
+            {"$ref": "#/$defs/BinomialCdf"},
+            {"$ref": "#/$defs/Correlation"},
+            {"$ref": "#/$defs/LinearRegression"},
+            {"$ref": "#/$defs/Percentile"},
+            {"$ref": "#/$defs/Mode"},
+            {"$ref": "#/$defs/Rank"}
         ],
         "$defs": {
             "Sample": {
@@ -271,6 +442,55 @@ pub fn stats_schema_json() -> Value {
                     "p": {"type": "number", "minimum": 0, "maximum": 1},
                     "k": {"type": "integer", "minimum": 0}
                 }
+            },
+            "Correlation": {
+                "type": "object",
+                "required": ["intent", "x", "y"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "correlation"},
+                    "x": {"$ref": "#/$defs/Sample"},
+                    "y": {"$ref": "#/$defs/Sample"}
+                }
+            },
+            "LinearRegression": {
+                "type": "object",
+                "required": ["intent", "x", "y"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "linear_regression"},
+                    "x": {"$ref": "#/$defs/Sample"},
+                    "y": {"$ref": "#/$defs/Sample"}
+                }
+            },
+            "Percentile": {
+                "type": "object",
+                "required": ["intent", "values", "p"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "percentile"},
+                    "values": {"$ref": "#/$defs/Sample"},
+                    "p": {"type": "number", "minimum": 0, "maximum": 100}
+                }
+            },
+            "Mode": {
+                "type": "object",
+                "required": ["intent", "values"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "mode"},
+                    "values": {"$ref": "#/$defs/Sample"}
+                }
+            },
+            "Rank": {
+                "type": "object",
+                "required": ["intent", "values", "method"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "rank"},
+                    "values": {"$ref": "#/$defs/Sample"},
+                    "method": {"type": "string", "enum": ["average", "min", "max", "first", "last"]}
+                }
             }
         }
     })
@@ -284,6 +504,12 @@ struct SampleSummary {
     std_dev: f64,
     min: f64,
     max: f64,
+    median: f64,
+    q1: f64,
+    q3: f64,
+    iqr: f64,
+    skewness: f64,
+    kurtosis: f64,
 }
 
 enum StatsOutput {
@@ -296,6 +522,24 @@ enum StatsOutput {
         lower: f64,
         upper: f64,
     },
+    CorrelationResult {
+        pearson_r: f64,
+        n: usize,
+    },
+    RegressionResult {
+        slope: f64,
+        intercept: f64,
+        r_squared: f64,
+    },
+    PercentileValue {
+        value: f64,
+        p: f64,
+    },
+    ModeResult {
+        values: Vec<f64>,
+        frequency: usize,
+    },
+    RanksResult(Vec<f64>),
 }
 
 fn describe_sample(values: &[f64]) -> Result<SampleSummary, String> {
@@ -317,14 +561,163 @@ fn describe_sample(values: &[f64]) -> Result<SampleSummary, String> {
         max = max.max(*value);
     }
     let variance = if n > 1 { sum_sq / (n - 1) as f64 } else { 0.0 };
+    let std_dev = variance.sqrt();
+
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let median = percentile_sorted(&sorted, 50.0);
+    let q1 = percentile_sorted(&sorted, 25.0);
+    let q3 = percentile_sorted(&sorted, 75.0);
+    let iqr = q3 - q1;
+    let skewness = sample_skewness(values, mean, std_dev);
+    let kurtosis = sample_kurtosis(values, mean, std_dev);
+
     Ok(SampleSummary {
         n,
         mean,
         variance,
-        std_dev: variance.sqrt(),
+        std_dev,
         min,
         max,
+        median,
+        q1,
+        q3,
+        iqr,
+        skewness,
+        kurtosis,
     })
+}
+
+fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
+    let n = sorted.len();
+    if n == 1 {
+        return sorted[0];
+    }
+    let pos = p / 100.0 * (n - 1) as f64;
+    let lo = pos.floor() as usize;
+    let hi = pos.ceil() as usize;
+    let frac = pos - lo as f64;
+    sorted[lo] * (1.0 - frac) + sorted[hi] * frac
+}
+
+fn sample_skewness(values: &[f64], mean: f64, std_dev: f64) -> f64 {
+    let n = values.len();
+    if n < 3 || std_dev == 0.0 {
+        return 0.0;
+    }
+    let factor = n as f64 / ((n - 1) as f64 * (n - 2) as f64);
+    let sum: f64 = values.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum();
+    factor * sum
+}
+
+fn sample_kurtosis(values: &[f64], mean: f64, std_dev: f64) -> f64 {
+    let n = values.len() as f64;
+    if n < 4.0 || std_dev == 0.0 {
+        return 0.0;
+    }
+    let factor1 = (n * (n + 1.0)) / ((n - 1.0) * (n - 2.0) * (n - 3.0));
+    let sum: f64 = values.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum();
+    let correction = 3.0 * (n - 1.0).powi(2) / ((n - 2.0) * (n - 3.0));
+    factor1 * sum - correction
+}
+
+fn correlation(x: &[f64], y: &[f64]) -> Result<(f64, usize), String> {
+    if x.len() != y.len() {
+        return Err("x and y must have the same length".to_owned());
+    }
+    let n = x.len();
+    if n < 2 {
+        return Err("correlation requires at least two paired observations".to_owned());
+    }
+    if !x.iter().all(|v| v.is_finite()) || !y.iter().all(|v| v.is_finite()) {
+        return Err("x and y values must be finite".to_owned());
+    }
+    let mean_x = x.iter().sum::<f64>() / n as f64;
+    let mean_y = y.iter().sum::<f64>() / n as f64;
+    let (mut num, mut denom_x, mut denom_y) = (0.0f64, 0.0f64, 0.0f64);
+    for (xi, yi) in x.iter().zip(y.iter()) {
+        let dx = xi - mean_x;
+        let dy = yi - mean_y;
+        num += dx * dy;
+        denom_x += dx * dx;
+        denom_y += dy * dy;
+    }
+    let denom = (denom_x * denom_y).sqrt();
+    if denom == 0.0 {
+        return Err(
+            "correlation is undefined when all values in a series are identical".to_owned(),
+        );
+    }
+    Ok((num / denom, n))
+}
+
+fn linear_regression(x: &[f64], y: &[f64]) -> Result<(f64, f64, f64), String> {
+    let (pearson_r, n) = correlation(x, y)?;
+    let mean_x = x.iter().sum::<f64>() / n as f64;
+    let mean_y = y.iter().sum::<f64>() / n as f64;
+    let denom_x: f64 = x.iter().map(|xi| (xi - mean_x).powi(2)).sum();
+    let num: f64 = x
+        .iter()
+        .zip(y.iter())
+        .map(|(xi, yi)| (xi - mean_x) * (yi - mean_y))
+        .sum();
+    let slope = num / denom_x;
+    let intercept = mean_y - slope * mean_x;
+    let r_squared = pearson_r * pearson_r;
+    Ok((slope, intercept, r_squared))
+}
+
+fn compute_mode(values: &[f64]) -> (Vec<f64>, usize) {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let mut counts: Vec<(f64, usize)> = Vec::new();
+    for v in &sorted {
+        if let Some(last) = counts.last_mut()
+            && last.0.to_bits() == v.to_bits()
+        {
+            last.1 += 1;
+            continue;
+        }
+        counts.push((*v, 1));
+    }
+
+    let max_count = counts.iter().map(|(_, c)| *c).max().unwrap_or(0);
+    let modal: Vec<f64> = counts
+        .into_iter()
+        .filter(|(_, c)| *c == max_count)
+        .map(|(v, _)| v)
+        .collect();
+    (modal, max_count)
+}
+
+fn compute_ranks(values: &[f64], method: RankMethod) -> Vec<f64> {
+    let n = values.len();
+    let mut indexed: Vec<(f64, usize)> = values.iter().copied().zip(0..n).collect();
+    indexed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1)));
+
+    let mut ranks = vec![0.0f64; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i + 1;
+        while j < n && indexed[j].0.to_bits() == indexed[i].0.to_bits() {
+            j += 1;
+        }
+        // positions i..j are a tie group; 1-based ranks are (i+1)..=j
+        for k in i..j {
+            let rank = match method {
+                RankMethod::Average => (i + j + 1) as f64 / 2.0,
+                RankMethod::Min => (i + 1) as f64,
+                RankMethod::Max => j as f64,
+                RankMethod::First => (k + 1) as f64,
+                RankMethod::Last => (i + j - k) as f64,
+            };
+            ranks[indexed[k].1] = rank;
+        }
+        i = j;
+    }
+    ranks
 }
 
 fn normal(mean: f64, std_dev: f64) -> Result<Normal, String> {
@@ -405,6 +798,10 @@ mod tests {
                 std_dev,
                 min,
                 max,
+                median,
+                q1,
+                q3,
+                iqr,
                 ..
             } => {
                 assert_eq!(n, 3);
@@ -413,6 +810,10 @@ mod tests {
                 assert_eq!(std_dev, 1.0);
                 assert_eq!(min, 1.0);
                 assert_eq!(max, 3.0);
+                assert_eq!(median, 2.0);
+                assert!((q1 - 1.5).abs() < 1e-12);
+                assert!((q3 - 2.5).abs() < 1e-12);
+                assert!((iqr - 1.0).abs() < 1e-12);
             }
             other => panic!("expected sample summary, got {other:?}"),
         }
@@ -485,6 +886,353 @@ mod tests {
     }
 
     #[test]
+    fn describe_sample_includes_median_quartiles_skewness_kurtosis() {
+        // [1,2,3,4,5]: symmetric → skewness ≈ 0, kurtosis < 0 (platykurtic)
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary {
+                median,
+                q1,
+                q3,
+                iqr,
+                skewness,
+                ..
+            } => {
+                assert_eq!(median, 3.0);
+                assert_eq!(q1, 2.0);
+                assert_eq!(q3, 4.0);
+                assert_eq!(iqr, 2.0);
+                assert!(skewness.abs() < 1e-10, "skewness of symmetric sample ≈ 0");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_correlation() {
+        match (StatsRequest::Correlation {
+            x: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            y: vec![2.1, 3.9, 6.2, 7.8, 10.1],
+        })
+        .evaluate()
+        {
+            StatsResponse::Correlation { pearson_r, n, .. } => {
+                assert_eq!(n, 5);
+                assert!((pearson_r - 0.9994).abs() < 0.001, "r = {pearson_r}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_linear_regression() {
+        match (StatsRequest::LinearRegression {
+            x: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            y: vec![2.1, 3.9, 6.2, 7.8, 10.1],
+        })
+        .evaluate()
+        {
+            StatsResponse::Regression {
+                slope,
+                intercept,
+                r_squared,
+                ..
+            } => {
+                assert!((slope - 1.99).abs() < 0.01, "slope = {slope}");
+                assert!(intercept.abs() < 0.2, "intercept = {intercept}");
+                assert!(r_squared > 0.997, "r² = {r_squared}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_percentile() {
+        // P50 of [10,20,30] = 20
+        match (StatsRequest::Percentile {
+            values: vec![10.0, 30.0, 20.0],
+            p: 50.0,
+        })
+        .evaluate()
+        {
+            StatsResponse::Percentile { value, p, .. } => {
+                assert!((value - 20.0).abs() < 1e-9);
+                assert_eq!(p, 50.0);
+            }
+            other => panic!("{other:?}"),
+        }
+        // P75 of [1,2,3,4]
+        match (StatsRequest::Percentile {
+            values: vec![1.0, 2.0, 3.0, 4.0],
+            p: 75.0,
+        })
+        .evaluate()
+        {
+            StatsResponse::Percentile { value, .. } => {
+                assert!((value - 3.25).abs() < 1e-9, "P75 = {value}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_mode_single_and_multimodal() {
+        // single mode
+        match (StatsRequest::Mode {
+            values: vec![1.0, 2.0, 2.0, 3.0, 3.0, 3.0, 4.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::Mode {
+                values, frequency, ..
+            } => {
+                assert_eq!(values, vec![3.0]);
+                assert_eq!(frequency, 3);
+            }
+            other => panic!("{other:?}"),
+        }
+        // multimodal
+        match (StatsRequest::Mode {
+            values: vec![1.0, 2.0, 2.0, 3.0, 3.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::Mode {
+                values, frequency, ..
+            } => {
+                assert_eq!(values, vec![2.0, 3.0]);
+                assert_eq!(frequency, 2);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_ranks_average_method() {
+        match (StatsRequest::Rank {
+            values: vec![40.0, 20.0, 30.0, 10.0],
+            method: RankMethod::Average,
+        })
+        .evaluate()
+        {
+            StatsResponse::Ranks { ranks, .. } => {
+                assert_eq!(ranks, vec![4.0, 2.0, 3.0, 1.0]);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn computes_ranks_with_ties() {
+        // [10, 20, 20, 30]: ranks with average → [1, 2.5, 2.5, 4]
+        match (StatsRequest::Rank {
+            values: vec![10.0, 20.0, 20.0, 30.0],
+            method: RankMethod::Average,
+        })
+        .evaluate()
+        {
+            StatsResponse::Ranks { ranks, .. } => {
+                assert_eq!(ranks, vec![1.0, 2.5, 2.5, 4.0]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // min method
+        match (StatsRequest::Rank {
+            values: vec![10.0, 20.0, 20.0, 30.0],
+            method: RankMethod::Min,
+        })
+        .evaluate()
+        {
+            StatsResponse::Ranks { ranks, .. } => {
+                assert_eq!(ranks, vec![1.0, 2.0, 2.0, 4.0]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // max method
+        match (StatsRequest::Rank {
+            values: vec![10.0, 20.0, 20.0, 30.0],
+            method: RankMethod::Max,
+        })
+        .evaluate()
+        {
+            StatsResponse::Ranks { ranks, .. } => {
+                assert_eq!(ranks, vec![1.0, 3.0, 3.0, 4.0]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // first method
+        match (StatsRequest::Rank {
+            values: vec![10.0, 20.0, 20.0, 30.0],
+            method: RankMethod::First,
+        })
+        .evaluate()
+        {
+            StatsResponse::Ranks { ranks, .. } => {
+                assert_eq!(ranks, vec![1.0, 2.0, 3.0, 4.0]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // last method
+        match (StatsRequest::Rank {
+            values: vec![10.0, 20.0, 20.0, 30.0],
+            method: RankMethod::Last,
+        })
+        .evaluate()
+        {
+            StatsResponse::Ranks { ranks, .. } => {
+                assert_eq!(ranks, vec![1.0, 3.0, 2.0, 4.0]);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn skewness_formula_is_exact_for_asymmetric_sample() {
+        // [1,1,1,2,10]: n=5, strongly right-skewed
+        // skewness ≈ 2.173 (hand-verified); kills - → / and / → % / * mutations
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 1.0, 1.0, 2.0, 10.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary { skewness, .. } => {
+                assert!((skewness - 2.173).abs() < 0.01, "skewness = {skewness}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn kurtosis_formula_is_exact() {
+        // [1,1,1,4]: n=4, mean=1.75, std=1.5, excess kurtosis = 4.0 (hand-verified)
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 1.0, 1.0, 4.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary { kurtosis, .. } => {
+                assert!((kurtosis - 4.0).abs() < 1e-9, "kurtosis = {kurtosis}");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // n=3: too small for kurtosis → must be 0.0 (kills || → && in guard)
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 2.0, 3.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary { kurtosis, .. } => {
+                assert_eq!(kurtosis, 0.0, "kurtosis of n=3 sample must be 0.0");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // [1,1,1,1,4]: n=5, excess kurtosis = 5.0 (hand-verified)
+        // Kills: < → > guard (n=5 would return 0 with mutation), and n=4-equivalent
+        // arithmetic mutations at n-2/n-3 factors that were undetectable with n=4.
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 1.0, 1.0, 1.0, 4.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary { kurtosis, .. } => {
+                assert!((kurtosis - 5.0).abs() < 1e-9, "kurtosis(n=5) = {kurtosis}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn correlation_succeeds_with_n_equals_2() {
+        // kills < → <= mutation (n < 2 → n <= 2 would reject n=2)
+        match (StatsRequest::Correlation {
+            x: vec![1.0, 3.0],
+            y: vec![2.0, 4.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::Correlation { pearson_r, n, .. } => {
+                assert_eq!(n, 2);
+                assert!((pearson_r - 1.0).abs() < 1e-9);
+            }
+            other => panic!("n=2 should succeed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn correlation_rejects_non_finite_in_either_series() {
+        // kills || → && mutation (only y has NaN, x is finite)
+        assert!(matches!(
+            StatsRequest::Correlation {
+                x: vec![1.0, 2.0, 3.0],
+                y: vec![f64::NAN, 2.0, 3.0]
+            }
+            .evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("finite")
+        ));
+        // x has NaN too
+        assert!(matches!(
+            StatsRequest::Correlation {
+                x: vec![f64::INFINITY, 2.0],
+                y: vec![1.0, 2.0]
+            }
+            .evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("finite")
+        ));
+    }
+
+    #[test]
+    fn regression_r_squared_is_squared_not_divided() {
+        // r < 1, so r² ≠ r/r; kills * → / mutation at r_squared = pearson_r * pearson_r
+        match (StatsRequest::LinearRegression {
+            x: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            y: vec![1.1, 1.9, 3.2, 3.8, 5.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::Regression { r_squared, .. } => {
+                assert!(
+                    r_squared > 0.98 && r_squared < 1.0,
+                    "r² = {r_squared} (must be < 1 for this imperfect dataset)"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn correlation_rejects_mismatched_lengths_and_constant_series() {
+        assert!(matches!(
+            StatsRequest::Correlation {
+                x: vec![1.0, 2.0],
+                y: vec![1.0]
+            }
+            .evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("same length")
+        ));
+        assert!(matches!(
+            StatsRequest::Correlation {
+                x: vec![1.0],
+                y: vec![1.0]
+            }
+            .evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("at least two")
+        ));
+        assert!(matches!(
+            StatsRequest::Correlation {
+                x: vec![1.0, 1.0, 1.0],
+                y: vec![1.0, 2.0, 3.0]
+            }
+            .evaluate(),
+            StatsResponse::Error { reason, .. } if reason.contains("undefined")
+        ));
+    }
+
+    #[test]
     fn rejects_invalid_inputs() {
         assert!(matches!(
             (StatsRequest::DescribeSample { values: vec![] }).evaluate(),
@@ -514,6 +1262,95 @@ mod tests {
             (StatsRequest::NormalQuantile { mean: 0.0, std_dev: 1.0, p: 0.0 }).evaluate(),
             StatsResponse::Error { reason, .. } if reason == "p must be in (0, 1)"
         ));
+    }
+
+    #[test]
+    fn percentile_boundary_values_are_valid() {
+        let p0 = StatsRequest::Percentile {
+            values: vec![5.0, 3.0, 1.0],
+            p: 0.0,
+        }
+        .evaluate();
+        match p0 {
+            StatsResponse::Percentile { value, .. } => {
+                assert!(
+                    (value - 1.0).abs() < 1e-9,
+                    "p=0 should return min=1.0, got {value}"
+                )
+            }
+            other => panic!("expected Percentile, got {other:?}"),
+        }
+
+        let p100 = StatsRequest::Percentile {
+            values: vec![5.0, 3.0, 1.0],
+            p: 100.0,
+        }
+        .evaluate();
+        match p100 {
+            StatsResponse::Percentile { value, .. } => {
+                assert!(
+                    (value - 5.0).abs() < 1e-9,
+                    "p=100 should return max=5.0, got {value}"
+                )
+            }
+            other => panic!("expected Percentile, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn percentile_rejects_out_of_range_and_non_finite_p() {
+        assert!(
+            matches!(
+                StatsRequest::Percentile { values: vec![1.0], p: -1.0 }.evaluate(),
+                StatsResponse::Error { reason, .. } if reason.contains("[0, 100]")
+            ),
+            "p=-1 should error"
+        );
+        assert!(
+            matches!(
+                StatsRequest::Percentile { values: vec![1.0], p: 101.0 }.evaluate(),
+                StatsResponse::Error { reason, .. } if reason.contains("[0, 100]")
+            ),
+            "p=101 should error"
+        );
+        assert!(
+            matches!(
+                StatsRequest::Percentile { values: vec![1.0], p: f64::NAN }.evaluate(),
+                StatsResponse::Error { reason, .. } if reason.contains("[0, 100]")
+            ),
+            "p=NaN should error"
+        );
+    }
+
+    #[test]
+    fn skewness_guard_n_lt_3_returns_zero() {
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 3.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary { skewness, .. } => {
+                assert_eq!(skewness, 0.0, "n=2 skewness must be 0")
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn skewness_n3_asymmetric_sample_is_nonzero() {
+        match (StatsRequest::DescribeSample {
+            values: vec![1.0, 2.0, 10.0],
+        })
+        .evaluate()
+        {
+            StatsResponse::SampleSummary { skewness, .. } => {
+                assert!(
+                    skewness > 1.0,
+                    "skewness of [1,2,10] n=3 should be >1, got {skewness}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -547,7 +1384,12 @@ mod tests {
                 StatsResponse::SampleSummary { checks, .. }
                 | StatsResponse::Probability { checks, .. }
                 | StatsResponse::Quantile { checks, .. }
-                | StatsResponse::Interval { checks, .. } => checks,
+                | StatsResponse::Interval { checks, .. }
+                | StatsResponse::Correlation { checks, .. }
+                | StatsResponse::Regression { checks, .. }
+                | StatsResponse::Percentile { checks, .. }
+                | StatsResponse::Mode { checks, .. }
+                | StatsResponse::Ranks { checks, .. } => checks,
                 other => panic!("expected successful response, got {other:?}"),
             };
             assert_eq!(checks.len(), 1);

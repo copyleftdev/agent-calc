@@ -2475,6 +2475,146 @@ fn stats_describe_sample_accepts_data_alias() {
     assert_eq!(json["status"], "sample_summary");
     assert_eq!(json["n"], 3);
     assert!((json["mean"].as_f64().unwrap() - 2.0).abs() < 1e-12);
+    assert!((json["median"].as_f64().unwrap() - 2.0).abs() < 1e-12);
+    assert!(json["q1"].as_f64().is_some());
+    assert!(json["iqr"].as_f64().is_some());
+}
+
+#[test]
+fn stats_computes_correlation() {
+    let input = serde_json::json!({
+        "intent": "correlation",
+        "x": [1.0, 2.0, 3.0, 4.0, 5.0],
+        "y": [2.0, 4.0, 6.0, 8.0, 10.0]
+    });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "correlation");
+    let r = json["pearson_r"].as_f64().unwrap();
+    assert!((r - 1.0).abs() < 1e-9, "r = {r}");
+    assert_eq!(json["n"], 5);
+}
+
+#[test]
+fn stats_computes_linear_regression() {
+    let input = serde_json::json!({
+        "intent": "linear_regression",
+        "x": [1.0, 2.0, 3.0, 4.0, 5.0],
+        "y": [3.0, 5.0, 7.0, 9.0, 11.0]
+    });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "regression");
+    let slope = json["slope"].as_f64().unwrap();
+    let intercept = json["intercept"].as_f64().unwrap();
+    assert!((slope - 2.0).abs() < 1e-9, "slope = {slope}");
+    assert!((intercept - 1.0).abs() < 1e-9, "intercept = {intercept}");
+    assert!((json["r_squared"].as_f64().unwrap() - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn stats_computes_percentile() {
+    let input = serde_json::json!({
+        "intent": "percentile",
+        "values": [10.0, 20.0, 30.0, 40.0, 50.0],
+        "p": 50.0
+    });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "percentile");
+    assert!((json["value"].as_f64().unwrap() - 30.0).abs() < 1e-9);
+    assert_eq!(json["p"], 50.0);
+}
+
+#[test]
+fn stats_computes_mode() {
+    let input = serde_json::json!({
+        "intent": "mode",
+        "values": [1.0, 2.0, 2.0, 3.0, 3.0, 3.0]
+    });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "mode");
+    assert_eq!(json["values"], serde_json::json!([3.0]));
+    assert_eq!(json["frequency"], 3);
+}
+
+#[test]
+fn stats_computes_rank() {
+    let input = serde_json::json!({
+        "intent": "rank",
+        "values": [40.0, 20.0, 30.0, 10.0],
+        "method": "average"
+    });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "ranks");
+    assert_eq!(json["ranks"], serde_json::json!([4.0, 2.0, 3.0, 1.0]));
 }
 
 #[test]
