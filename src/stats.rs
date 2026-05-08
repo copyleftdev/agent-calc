@@ -30,6 +30,27 @@ fn default_alpha() -> f64 {
     0.05
 }
 
+fn default_period() -> usize {
+    3
+}
+
+fn default_max_lag() -> usize {
+    10
+}
+
+fn default_smoothing() -> f64 {
+    0.3
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeSeriesIntent {
+    Sma,
+    Ema,
+    Autocorr,
+    Trend,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
 pub enum StatsRequest {
@@ -170,6 +191,16 @@ pub enum StatsRequest {
         #[serde(default = "default_alpha")]
         alpha: f64,
     },
+    TimeSeries {
+        method: TimeSeriesIntent,
+        values: Vec<f64>,
+        #[serde(default = "default_period")]
+        period: usize,
+        #[serde(default = "default_max_lag")]
+        max_lag: usize,
+        #[serde(default = "default_smoothing")]
+        smoothing: f64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -280,6 +311,14 @@ pub enum StatsResponse {
         alpha: f64,
         reject_h0: bool,
         conclusion: String,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    TimeSeries {
+        contract_version: String,
+        method: String,
+        result: Vec<f64>,
+        n: usize,
         exactness: StatsExactness,
         checks: Vec<StatsCheck>,
     },
@@ -427,6 +466,14 @@ impl StatsRequest {
                 alpha,
                 reject_h0,
                 conclusion,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::TimeSeriesResult { method, result, n }) => StatsResponse::TimeSeries {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                method: method.to_owned(),
+                result,
+                n,
                 exactness: StatsExactness::ApproximateF64,
                 checks: default_checks(),
             },
@@ -676,6 +723,13 @@ impl StatsRequest {
                 alpha,
             } => chi_square_gof_test(observed, expected, *alpha),
             StatsRequest::OneWayAnova { groups, alpha } => one_way_anova_test(groups, *alpha),
+            StatsRequest::TimeSeries {
+                method,
+                values,
+                period,
+                max_lag,
+                smoothing,
+            } => time_series_analysis(*method, values, *period, *max_lag, *smoothing),
         }
     }
 }
@@ -1098,6 +1152,11 @@ enum StatsOutput {
         alpha: f64,
         reject_h0: bool,
         conclusion: String,
+    },
+    TimeSeriesResult {
+        method: &'static str,
+        result: Vec<f64>,
+        n: usize,
     },
 }
 
@@ -1611,6 +1670,98 @@ fn one_way_anova_test(groups: &[Vec<f64>], alpha: f64) -> Result<StatsOutput, St
         alpha,
         reject_h0,
         conclusion,
+    })
+}
+
+fn ts_validate(values: &[f64]) -> Result<(), String> {
+    if values.len() < 2 {
+        return Err("values must contain at least 2 elements".to_owned());
+    }
+    if !values.iter().all(|v| v.is_finite()) {
+        return Err("values must be finite".to_owned());
+    }
+    Ok(())
+}
+
+fn sma(values: &[f64], period: usize) -> Result<Vec<f64>, String> {
+    ts_validate(values)?;
+    let n = values.len();
+    if period < 2 {
+        return Err("period must be at least 2".to_owned());
+    }
+    if period > n {
+        return Err(format!(
+            "period ({period}) cannot exceed values length ({n})"
+        ));
+    }
+    let result = (0..=n - period)
+        .map(|i| values[i..i + period].iter().sum::<f64>() / period as f64)
+        .collect();
+    Ok(result)
+}
+
+fn ema(values: &[f64], smoothing: f64) -> Result<Vec<f64>, String> {
+    ts_validate(values)?;
+    if smoothing <= 0.0 || smoothing >= 1.0 {
+        return Err("smoothing must be in (0, 1)".to_owned());
+    }
+    let mut result = Vec::with_capacity(values.len());
+    result.push(values[0]);
+    for i in 1..values.len() {
+        let prev = result[i - 1];
+        result.push(smoothing * values[i] + (1.0 - smoothing) * prev);
+    }
+    Ok(result)
+}
+
+fn autocorrelation(values: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
+    ts_validate(values)?;
+    let n = values.len();
+    let mean = values.iter().sum::<f64>() / n as f64;
+    let denom: f64 = values.iter().map(|x| (x - mean).powi(2)).sum();
+    if denom == 0.0 {
+        return Err("values have zero variance — autocorrelation is undefined".to_owned());
+    }
+    let effective_max = max_lag.min(n - 1);
+    let result = (0..=effective_max)
+        .map(|k| {
+            if k == 0 {
+                1.0
+            } else {
+                let num: f64 = (0..n - k)
+                    .map(|i| (values[i] - mean) * (values[i + k] - mean))
+                    .sum();
+                num / denom
+            }
+        })
+        .collect();
+    Ok(result)
+}
+
+fn ts_trend(values: &[f64]) -> Result<Vec<f64>, String> {
+    ts_validate(values)?;
+    let t: Vec<f64> = (0..values.len()).map(|i| i as f64).collect();
+    let (slope, intercept, r_squared) = linear_regression(&t, values)?;
+    Ok(vec![slope, intercept, r_squared])
+}
+
+fn time_series_analysis(
+    method: TimeSeriesIntent,
+    values: &[f64],
+    period: usize,
+    max_lag: usize,
+    smoothing: f64,
+) -> Result<StatsOutput, String> {
+    let (result, name): (Vec<f64>, &'static str) = match method {
+        TimeSeriesIntent::Sma => (sma(values, period)?, "Sma"),
+        TimeSeriesIntent::Ema => (ema(values, smoothing)?, "Ema"),
+        TimeSeriesIntent::Autocorr => (autocorrelation(values, max_lag)?, "Autocorr"),
+        TimeSeriesIntent::Trend => (ts_trend(values)?, "Trend"),
+    };
+    Ok(StatsOutput::TimeSeriesResult {
+        method: name,
+        result,
+        n: values.len(),
     })
 }
 
@@ -3722,5 +3873,344 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    // ── time series helpers ───────────────────────────────────────────────────
+
+    fn ts(response: StatsResponse) -> (Vec<f64>, usize) {
+        match response {
+            StatsResponse::TimeSeries { result, n, .. } => (result, n),
+            other => panic!("expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    // ── SMA ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn sma_window3_arithmetic_sequence_exact() {
+        // [1,2,3,4,5] period=3: windows [1,2,3],[2,3,4],[3,4,5] → [2.0,3.0,4.0]
+        // Kills / → * on the mean: sum=6, 6/3=2 vs 6*3=18.
+        let (result, n) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Sma,
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            period: 3,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(n, 5);
+        assert_eq!(result.len(), 3, "output length should be n-period+1");
+        assert!((result[0] - 2.0).abs() < 1e-12, "sma[0]={}", result[0]);
+        assert!((result[1] - 3.0).abs() < 1e-12, "sma[1]={}", result[1]);
+        assert!((result[2] - 4.0).abs() < 1e-12, "sma[2]={}", result[2]);
+    }
+
+    #[test]
+    fn sma_window_equals_n_gives_single_mean() {
+        // period=n → one output element = mean.
+        // Kills boundary mutations on 0..=n-period (would give empty or wrong result).
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Sma,
+            values: vec![2.0, 4.0, 6.0, 8.0],
+            period: 4,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(result.len(), 1);
+        assert!((result[0] - 5.0).abs() < 1e-12, "mean={}", result[0]);
+    }
+
+    #[test]
+    fn sma_output_length_is_n_minus_period_plus_one() {
+        // Explicit length assertion kills off-by-one mutations.
+        for (n, period) in [(10usize, 3usize), (7, 4), (5, 5)] {
+            let values: Vec<f64> = (1..=n).map(|i| i as f64).collect();
+            let (result, _) = ts((StatsRequest::TimeSeries {
+                method: TimeSeriesIntent::Sma,
+                values,
+                period,
+                max_lag: 10,
+                smoothing: 0.3,
+            })
+            .evaluate());
+            assert_eq!(
+                result.len(),
+                n - period + 1,
+                "n={n} period={period} len={}",
+                result.len()
+            );
+        }
+    }
+
+    #[test]
+    fn sma_rejects_period_exceeding_length() {
+        assert!(matches!(
+            (StatsRequest::TimeSeries {
+                method: TimeSeriesIntent::Sma,
+                values: vec![1.0, 2.0],
+                period: 5,
+                max_lag: 10,
+                smoothing: 0.3,
+            })
+            .evaluate(),
+            StatsResponse::Error { .. }
+        ));
+    }
+
+    #[test]
+    fn sma_rejects_period_less_than_2() {
+        assert!(matches!(
+            (StatsRequest::TimeSeries {
+                method: TimeSeriesIntent::Sma,
+                values: vec![1.0, 2.0, 3.0],
+                period: 1,
+                max_lag: 10,
+                smoothing: 0.3,
+            })
+            .evaluate(),
+            StatsResponse::Error { .. }
+        ));
+    }
+
+    // ── EMA ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ema_exact_values() {
+        // values=[1,4,9,16], smoothing=0.5:
+        // ema[0]=1.0
+        // ema[1]=0.5*4 + 0.5*1.0 = 2.5
+        // ema[2]=0.5*9 + 0.5*2.5 = 5.75
+        // ema[3]=0.5*16 + 0.5*5.75 = 10.875
+        // Kills + → -, * → +, smoothing ↔ 1-smoothing coefficient mutations.
+        let (result, n) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Ema,
+            values: vec![1.0, 4.0, 9.0, 16.0],
+            period: 3,
+            max_lag: 10,
+            smoothing: 0.5,
+        })
+        .evaluate());
+        assert_eq!(n, 4);
+        assert_eq!(result.len(), 4, "EMA output length must equal input length");
+        assert!((result[0] - 1.0).abs() < 1e-12, "ema[0]={}", result[0]);
+        assert!((result[1] - 2.5).abs() < 1e-12, "ema[1]={}", result[1]);
+        assert!((result[2] - 5.75).abs() < 1e-12, "ema[2]={}", result[2]);
+        assert!((result[3] - 10.875).abs() < 1e-12, "ema[3]={}", result[3]);
+    }
+
+    #[test]
+    fn ema_constant_series_is_unchanged() {
+        // EMA of constant series = that constant (kills coefficient-swap mutation).
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Ema,
+            values: vec![7.0, 7.0, 7.0, 7.0, 7.0],
+            period: 3,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        for (i, v) in result.iter().enumerate() {
+            assert!((v - 7.0).abs() < 1e-12, "ema[{i}]={v}");
+        }
+    }
+
+    #[test]
+    fn ema_rejects_invalid_smoothing() {
+        for bad in [0.0, 1.0, -0.1, 1.5] {
+            assert!(
+                matches!(
+                    (StatsRequest::TimeSeries {
+                        method: TimeSeriesIntent::Ema,
+                        values: vec![1.0, 2.0, 3.0],
+                        period: 3,
+                        max_lag: 10,
+                        smoothing: bad,
+                    })
+                    .evaluate(),
+                    StatsResponse::Error { .. }
+                ),
+                "smoothing={bad} should error"
+            );
+        }
+    }
+
+    // ── Autocorrelation ───────────────────────────────────────────────────────
+
+    #[test]
+    fn autocorr_lag0_is_always_one() {
+        // r_0 = var / var = 1.0. Kills body → 0.0 and num/denom mutations.
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Autocorr,
+            values: vec![3.0, 1.0, 4.0, 1.0, 5.0, 9.0],
+            period: 3,
+            max_lag: 4,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert!((result[0] - 1.0).abs() < 1e-12, "ACF[0]={}", result[0]);
+    }
+
+    #[test]
+    fn autocorr_lag1_arithmetic_sequence() {
+        // [1,2,3,4,5] (n=5, mean=3): denom=10, lag-1 num=4 → r_1=0.4
+        // Kills / → * (would give 4*10=40) and - → + in (x-mean) (wrong mean subtraction).
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Autocorr,
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            period: 3,
+            max_lag: 3,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(result.len(), 4, "lags 0,1,2,3");
+        assert!((result[0] - 1.0).abs() < 1e-12, "ACF[0]={}", result[0]);
+        assert!(
+            (result[1] - 0.4).abs() < 1e-10,
+            "ACF[1] should be 0.4, got {}",
+            result[1]
+        );
+    }
+
+    #[test]
+    fn autocorr_values_in_minus_one_to_one() {
+        // All lags must be in [-1, 1]. Kills normalization errors.
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Autocorr,
+            values: vec![3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0],
+            period: 3,
+            max_lag: 5,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        for (k, r) in result.iter().enumerate() {
+            assert!(*r >= -1.0 && *r <= 1.0, "ACF[{k}]={r} outside [-1,1]");
+        }
+    }
+
+    #[test]
+    fn autocorr_output_length_is_max_lag_plus_one() {
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Autocorr,
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            period: 3,
+            max_lag: 4,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(result.len(), 5, "lags 0..=4 → 5 elements");
+    }
+
+    #[test]
+    fn autocorr_rejects_zero_variance() {
+        assert!(matches!(
+            (StatsRequest::TimeSeries {
+                method: TimeSeriesIntent::Autocorr,
+                values: vec![5.0, 5.0, 5.0, 5.0],
+                period: 3,
+                max_lag: 2,
+                smoothing: 0.3,
+            })
+            .evaluate(),
+            StatsResponse::Error { .. }
+        ));
+    }
+
+    // ── Trend ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn trend_exact_slope_intercept_r_squared() {
+        // [1,3,5,7,9]: perfect linear y = 2t + 1 (t=0..4)
+        // slope=2, intercept=1, r_squared=1.0
+        // Kills: wrong t-vector construction, wrong formula in linear_regression.
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Trend,
+            values: vec![1.0, 3.0, 5.0, 7.0, 9.0],
+            period: 3,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert_eq!(
+            result.len(),
+            3,
+            "trend returns [slope, intercept, r_squared]"
+        );
+        assert!((result[0] - 2.0).abs() < 1e-10, "slope={}", result[0]);
+        assert!((result[1] - 1.0).abs() < 1e-10, "intercept={}", result[1]);
+        assert!((result[2] - 1.0).abs() < 1e-10, "r_squared={}", result[2]);
+    }
+
+    #[test]
+    fn trend_negative_slope() {
+        // [5,4,3,2,1]: slope=-1, intercept=5
+        // Kills sign errors and swapped slope/intercept.
+        let (result, _) = ts((StatsRequest::TimeSeries {
+            method: TimeSeriesIntent::Trend,
+            values: vec![5.0, 4.0, 3.0, 2.0, 1.0],
+            period: 3,
+            max_lag: 10,
+            smoothing: 0.3,
+        })
+        .evaluate());
+        assert!((result[0] - (-1.0)).abs() < 1e-10, "slope={}", result[0]);
+        assert!((result[1] - 5.0).abs() < 1e-10, "intercept={}", result[1]);
+        assert!((result[2] - 1.0).abs() < 1e-10, "r_squared={}", result[2]);
+    }
+
+    // ── common error cases ────────────────────────────────────────────────────
+
+    #[test]
+    fn ts_rejects_too_few_values() {
+        for method in [
+            TimeSeriesIntent::Sma,
+            TimeSeriesIntent::Ema,
+            TimeSeriesIntent::Autocorr,
+            TimeSeriesIntent::Trend,
+        ] {
+            assert!(
+                matches!(
+                    (StatsRequest::TimeSeries {
+                        method,
+                        values: vec![1.0],
+                        period: 3,
+                        max_lag: 2,
+                        smoothing: 0.3,
+                    })
+                    .evaluate(),
+                    StatsResponse::Error { .. }
+                ),
+                "{method:?} should error for len=1"
+            );
+        }
+    }
+
+    #[test]
+    fn ts_rejects_non_finite_values() {
+        assert!(matches!(
+            (StatsRequest::TimeSeries {
+                method: TimeSeriesIntent::Sma,
+                values: vec![1.0, f64::NAN, 3.0],
+                period: 2,
+                max_lag: 2,
+                smoothing: 0.3,
+            })
+            .evaluate(),
+            StatsResponse::Error { .. }
+        ));
+    }
+
+    // ── JSON serde round-trip ─────────────────────────────────────────────────
+
+    #[test]
+    fn ts_sma_json_round_trip() {
+        // Verify intent tag deserialization and default field population.
+        let req: StatsRequest = serde_json::from_str(
+            r#"{"intent":"time_series","method":"sma","values":[1,2,3,4,5],"period":3}"#,
+        )
+        .unwrap();
+        let (result, _) = ts(req.evaluate());
+        assert_eq!(result.len(), 3);
+        assert!((result[0] - 2.0).abs() < 1e-12);
     }
 }
