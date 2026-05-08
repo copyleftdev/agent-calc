@@ -1,12 +1,12 @@
 use agent_calc::{
     AssumptionsRequest, CalculusRequest, ComplexRequest, Describe, EvalRequest, FinanceRequest,
-    InequalityRequest, IntervalRequest, LinearRequest, MatrixRequest, OptimizeRequest,
-    PolynomialRequest, SimplifyRequest, SolveRequest, StatsRequest, SubstituteRequest,
-    TraceRequest, UnitRequest, assumptions_schema_json, calculus_schema_json, complex_schema_json,
-    finance_schema_json, inequality_schema_json, interval_schema_json, linear_schema_json,
-    matrix_schema_json, optimize_schema_json, polynomial_schema_json, schema_json,
-    simplify_schema_json, solve_schema_json, stats_schema_json, substitute_schema_json,
-    trace_schema_json, units_schema_json,
+    InequalityRequest, IntervalRequest, LinearRequest, MatrixRequest, NumberRequest,
+    OptimizeRequest, PolynomialRequest, SimplifyRequest, SolveRequest, StatsRequest,
+    SubstituteRequest, TraceRequest, UnitRequest, assumptions_schema_json, calculus_schema_json,
+    complex_schema_json, finance_schema_json, inequality_schema_json, interval_schema_json,
+    linear_schema_json, matrix_schema_json, number_schema_json, optimize_schema_json,
+    polynomial_schema_json, schema_json, simplify_schema_json, solve_schema_json,
+    stats_schema_json, substitute_schema_json, trace_schema_json, units_schema_json,
 };
 use std::io::Read;
 use std::process::ExitCode;
@@ -33,6 +33,7 @@ fn main() -> ExitCode {
         Some("optimize") => optimize(&args[1..]),
         Some("linear") => linear(&args[1..]),
         Some("complex") => complex(&args[1..]),
+        Some("number") => number(&args[1..]),
         Some("--help") | Some("-h") | None => {
             print_usage();
             ExitCode::SUCCESS
@@ -338,6 +339,23 @@ fn complex(args: &[String]) -> ExitCode {
     write_json(&request.evaluate(), "complex")
 }
 
+fn number(args: &[String]) -> ExitCode {
+    let input = match read_json_input(args, "number") {
+        Ok(input) => input,
+        Err(code) => return code,
+    };
+
+    let request = match serde_json::from_str::<NumberRequest>(&input) {
+        Ok(request) => request,
+        Err(e) => {
+            eprintln!("agent-calc number: invalid request JSON: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    write_json(&request.evaluate(), "number")
+}
+
 fn schema(args: &[String]) -> ExitCode {
     match args {
         [] => write_json(&schema_json(), "schema"),
@@ -358,9 +376,10 @@ fn schema(args: &[String]) -> ExitCode {
         [domain] if domain == "polynomial" => write_json(&polynomial_schema_json(), "schema"),
         [domain] if domain == "interval" => write_json(&interval_schema_json(), "schema"),
         [domain] if domain == "finance" => write_json(&finance_schema_json(), "schema"),
+        [domain] if domain == "number" => write_json(&number_schema_json(), "schema"),
         _ => {
             eprintln!(
-                "agent-calc schema: expected no args, `rational`, `simplify`, `trace`, `substitute`, `assumptions`, `solve`, `calculus`, `inequality`, `polynomial`, `interval`, `finance`, `units`, `matrix`, `stats`, `optimize`, `linear`, or `complex`"
+                "agent-calc schema: expected no args, `rational`, `simplify`, `trace`, `substitute`, `assumptions`, `solve`, `calculus`, `inequality`, `polynomial`, `interval`, `finance`, `units`, `matrix`, `stats`, `optimize`, `linear`, `complex`, or `number`"
             );
             ExitCode::from(2)
         }
@@ -410,7 +429,7 @@ fn print_usage() {
 
 Usage:
   agent-calc describe          emit executable contract
-  agent-calc schema [domain]   emit request JSON Schema (rational|simplify|trace|substitute|assumptions|solve|calculus|inequality|polynomial|interval|finance|units|matrix|stats|optimize|linear|complex)
+  agent-calc schema [domain]   emit request JSON Schema (rational|simplify|trace|substitute|assumptions|solve|calculus|inequality|polynomial|interval|finance|units|matrix|stats|optimize|linear|complex|number)
   agent-calc eval [file]       evaluate request JSON from file or stdin
   agent-calc simplify [file]   simplify symbolic expression JSON from file or stdin
   agent-calc trace [file]      evaluate or simplify expression JSON with deterministic trace steps
@@ -428,6 +447,7 @@ Usage:
   agent-calc optimize [file]   evaluate optimization request JSON from file or stdin
   agent-calc linear [file]     evaluate linear-program request JSON from file or stdin
   agent-calc complex [file]    evaluate complex-number request JSON from file or stdin
+  agent-calc number [file]     evaluate number-theory request JSON from file or stdin
   agent-calc --version
   agent-calc --help
 "

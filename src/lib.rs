@@ -7,6 +7,7 @@ pub mod inequality;
 pub mod interval;
 pub mod linear;
 pub mod matrix;
+pub mod number;
 pub mod optimize;
 pub mod polynomial;
 pub mod protocol;
@@ -49,3 +50,4 @@ pub use linear::{
     ConstraintRelation, LinearConstraint, LinearRequest, LinearResponse, ObjectiveDirection,
     VariableBounds, linear_schema_json,
 };
+pub use number::{NumberRequest, NumberResponse, PrimeFactor, number_schema_json};
