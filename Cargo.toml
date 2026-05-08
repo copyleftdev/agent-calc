@@ -1,0 +1,34 @@
+[package]
+name = "agent-calc"
+version = "0.1.0"
+edition = "2024"
+description = "AI-native exact computation kernel with typed JSON contracts"
+readme = "README.md"
+repository = "https://github.com/copyleftdev/agent-calc"
+homepage = "https://github.com/copyleftdev/agent-calc"
+keywords = ["ai", "calculator", "symbolic-math", "cli", "contracts"]
+categories = ["command-line-utilities", "mathematics", "science"]
+publish = false
+exclude = [
+    ".agents/**",
+    ".codex/**",
+    "mutants.out/**",
+    "mutants.out.old/**",
+    "target/**",
+]
+
+[dependencies]
+argmin = { version = "0.11", default-features = false }
+good_lp = { version = "1.15", default-features = false, features = ["microlp"] }
+nalgebra = { version = "0.34", default-features = true, features = ["serde-serialize"] }
+num-bigint = { version = "0.4", features = ["serde"] }
+num-complex = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", features = ["serde", "num-bigint"] }
+num-traits = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+statrs = { version = "0.18", default-features = false }
+uom = { version = "0.38", default-features = false, features = ["f64", "si", "std"] }
+
+[dev-dependencies]
+proptest = "1"

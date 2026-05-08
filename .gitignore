@@ -1,0 +1,45 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# cargo-mutants output
+/mutants.out/
+/mutants.out.old/
+
+# Local editor and OS metadata
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.age
+*.sops.*
+
+# Logs, reports, and generated scratch artifacts
+*.log
+*.tmp
+*.temp
+/coverage/
+/lcov.info
+/tarpaulin-report.html
+/criterion/
+
+# Generated package archives
+*.crate
+
+# Local automation caches
+/.cache/
+/.cargo-audit/

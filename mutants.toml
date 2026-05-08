@@ -1,0 +1,3 @@
+# cargo-mutants configuration. Keep the default surface broad for now; narrow
+# skips only when generated code or intentionally unreachable paths appear.
+timeout_multiplier = 3.0
