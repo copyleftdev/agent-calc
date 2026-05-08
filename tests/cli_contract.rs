@@ -692,6 +692,177 @@ fn substitute_rejects_missing_binding() {
 }
 
 #[test]
+fn substitute_eval_after_exact_returns_substituted_and_evaluated() {
+    let mut child = Command::new(bin())
+        .arg("substitute")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // gross margin = (price - cost) / price; price = 7/4, cost = 1 → 3/7
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "expr": {
+                    "kind": "div",
+                    "left": {
+                        "kind": "sub",
+                        "left": { "kind": "symbol", "name": "price" },
+                        "right": { "kind": "symbol", "name": "cost" }
+                    },
+                    "right": { "kind": "symbol", "name": "price" }
+                },
+                "bindings": {
+                    "price": { "kind": "rational", "numerator": "7", "denominator": "4" },
+                    "cost":  { "kind": "integer", "value": "1" }
+                },
+                "eval_after": true,
+                "decimal_places": 6
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "substituted_and_evaluated");
+    assert_eq!(json["exact"]["display"], "3/7");
+    assert_eq!(json["exact"]["numerator"], "3");
+    assert_eq!(json["exact"]["denominator"], "7");
+    assert_eq!(json["decimal"], "0.428571");
+    assert!(json["substituted_expr"].is_object());
+    assert!(
+        json["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "evaluated_exact" && c["passed"] == true)
+    );
+}
+
+#[test]
+fn substitute_without_eval_after_still_returns_substituted() {
+    let mut child = Command::new(bin())
+        .arg("substitute")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "expr": { "kind": "symbol", "name": "x" },
+                "bindings": { "x": { "kind": "integer", "value": "5" } }
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "substituted");
+    assert_eq!(
+        json["expr"],
+        serde_json::json!({"kind": "integer", "value": "5"})
+    );
+}
+
+#[test]
+fn substitute_eval_after_transcendental_returns_approximated() {
+    let mut child = Command::new(bin())
+        .arg("substitute")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // sin(x) with x=0 → sin(0) ≈ 0.0
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "expr": { "kind": "sin", "value": { "kind": "symbol", "name": "x" } },
+                "bindings": { "x": { "kind": "integer", "value": "0" } },
+                "eval_after": true
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "substituted_and_approximated");
+    assert_eq!(json["exactness"], "approximate_f64");
+    assert!(json["value"].as_f64().is_some());
+    assert!(json["substituted_expr"].is_object());
+}
+
+#[test]
+fn substitute_eval_after_div_by_zero_returns_substitution_eval_error() {
+    let mut child = Command::new(bin())
+        .arg("substitute")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    // 1/x with x=0 → division by zero after substitution
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "expr": {
+                    "kind": "div",
+                    "left": { "kind": "integer", "value": "1" },
+                    "right": { "kind": "symbol", "name": "x" }
+                },
+                "bindings": { "x": { "kind": "integer", "value": "0" } },
+                "eval_after": true
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "substitution_eval_error");
+    assert_eq!(json["code"], "division_by_zero");
+    assert!(json["substituted_expr"].is_object());
+}
+
+#[test]
+fn substitute_schema_includes_eval_after_and_decimal_places() {
+    let output = Command::new(bin())
+        .arg("schema")
+        .arg("substitute")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["properties"]["eval_after"]["type"], "boolean");
+    assert_eq!(json["properties"]["eval_after"]["default"], false);
+    assert_eq!(json["properties"]["decimal_places"]["type"], "integer");
+    assert_eq!(json["properties"]["decimal_places"]["default"], 12);
+}
+
+#[test]
 fn assumptions_reads_stdin_and_derives_bounds() {
     let mut child = Command::new(bin())
         .arg("assumptions")

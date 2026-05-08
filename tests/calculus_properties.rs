@@ -50,7 +50,14 @@ fn derivative(expr: Expr) -> Expr {
 fn eval_at(expr: Expr, x: i32) -> i128 {
     let mut bindings = BTreeMap::new();
     bindings.insert("x".to_owned(), int(x));
-    let substituted = match (SubstituteRequest { expr, bindings }).substitute() {
+    let substituted = match (SubstituteRequest {
+        expr,
+        bindings,
+        eval_after: false,
+        decimal_places: 12,
+    })
+    .substitute()
+    {
         SubstituteResponse::Substituted { expr, .. } => expr,
         other => panic!("expected substituted expression, got {other:?}"),
     };

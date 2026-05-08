@@ -166,6 +166,8 @@ proptest! {
                 name: "x".to_owned(),
             },
             bindings,
+            eval_after: false,
+            decimal_places: 12,
         }
         .substitute();
 
@@ -187,6 +189,11 @@ proptest! {
                 prop_assert!(
                     reason.contains("overflow") || reason.contains("denominator must not be zero")
                 );
+            }
+            SubstituteResponse::SubstitutedAndEvaluated { .. }
+            | SubstituteResponse::SubstitutedAndApproximated { .. }
+            | SubstituteResponse::SubstitutionEvalError { .. } => {
+                panic!("unexpected eval_after response when eval_after is false")
             }
         }
     }
@@ -788,6 +795,8 @@ fn substitute_replaces_bound_symbols_and_simplifies() {
             }),
         },
         bindings,
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
 
@@ -810,6 +819,8 @@ fn substitute_reports_missing_and_invalid_bindings() {
             name: "x".to_owned(),
         },
         bindings: BTreeMap::new(),
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
 
@@ -830,6 +841,8 @@ fn substitute_reports_missing_and_invalid_bindings() {
             value: "1".to_owned(),
         },
         bindings: invalid_name,
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
 
@@ -851,6 +864,8 @@ fn substitute_reports_missing_and_invalid_bindings() {
             name: "x".to_owned(),
         },
         bindings: symbolic_binding,
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
 
@@ -873,6 +888,8 @@ fn substitute_reports_missing_and_invalid_bindings() {
             name: "x".to_owned(),
         },
         bindings: invalid_numeric_binding,
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
 
@@ -900,6 +917,8 @@ fn substitute_enforces_binding_count_limit() {
             value: "1".to_owned(),
         },
         bindings: max_bindings,
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
     assert!(matches!(
@@ -922,6 +941,8 @@ fn substitute_enforces_binding_count_limit() {
             value: "1".to_owned(),
         },
         bindings,
+        eval_after: false,
+        decimal_places: 12,
     }
     .substitute();
 

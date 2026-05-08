@@ -201,6 +201,10 @@ pub struct SimplifyRequest {
 pub struct SubstituteRequest {
     pub expr: Expr,
     pub bindings: BTreeMap<String, Expr>,
+    #[serde(default)]
+    pub eval_after: bool,
+    #[serde(default = "default_decimal_places")]
+    pub decimal_places: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -218,13 +222,33 @@ pub enum SimplifyResponse {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SubstituteResponse {
     Substituted {
         contract_version: String,
         expr: Expr,
         checks: Vec<Check>,
+    },
+    SubstitutedAndEvaluated {
+        contract_version: String,
+        substituted_expr: Expr,
+        exact: ExactRational,
+        decimal: String,
+        checks: Vec<Check>,
+    },
+    SubstitutedAndApproximated {
+        contract_version: String,
+        substituted_expr: Expr,
+        value: f64,
+        exactness: Exactness,
+        checks: Vec<Check>,
+    },
+    SubstitutionEvalError {
+        contract_version: String,
+        code: ErrorCode,
+        reason: String,
+        substituted_expr: Expr,
     },
     Error {
         contract_version: String,
@@ -739,14 +763,26 @@ impl SimplifyRequest {
 
 impl SubstituteRequest {
     pub fn substitute(&self) -> SubstituteResponse {
-        match validate_expr_limits(&self.expr)
+        let substituted = match validate_decimal_places(self.decimal_places)
+            .and_then(|_| validate_expr_limits(&self.expr))
             .and_then(|_| validate_bindings(&self.bindings))
             .and_then(|_| self.expr.substitute(&self.bindings))
             .and_then(|expr| expr.simplify())
         {
-            Ok(expr) => SubstituteResponse::Substituted {
+            Ok(expr) => expr,
+            Err(reason) => {
+                return SubstituteResponse::Error {
+                    contract_version: CONTRACT_VERSION.to_owned(),
+                    code: classify_error(&reason),
+                    reason,
+                };
+            }
+        };
+
+        if !self.eval_after {
+            return SubstituteResponse::Substituted {
                 contract_version: CONTRACT_VERSION.to_owned(),
-                expr,
+                expr: substituted,
                 checks: vec![
                     Check {
                         name: "all_symbols_bound".to_owned(),
@@ -761,11 +797,51 @@ impl SubstituteRequest {
                         passed: true,
                     },
                 ],
+            };
+        }
+
+        match substituted.evaluate_output() {
+            Ok(EvalOutput::Exact(value)) => SubstituteResponse::SubstitutedAndEvaluated {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                substituted_expr: substituted,
+                exact: ExactRational {
+                    numerator: value.numerator().to_string(),
+                    denominator: value.denominator().to_string(),
+                    display: value.to_string(),
+                },
+                decimal: value.decimal_string(self.decimal_places),
+                checks: vec![
+                    Check {
+                        name: "all_symbols_bound".to_owned(),
+                        passed: true,
+                    },
+                    Check {
+                        name: "evaluated_exact".to_owned(),
+                        passed: true,
+                    },
+                ],
             },
-            Err(reason) => SubstituteResponse::Error {
+            Ok(EvalOutput::Approx(value)) => SubstituteResponse::SubstitutedAndApproximated {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                substituted_expr: substituted,
+                value,
+                exactness: Exactness::ApproximateF64,
+                checks: vec![
+                    Check {
+                        name: "all_symbols_bound".to_owned(),
+                        passed: true,
+                    },
+                    Check {
+                        name: "evaluated_as_f64".to_owned(),
+                        passed: value.is_finite(),
+                    },
+                ],
+            },
+            Err(reason) => SubstituteResponse::SubstitutionEvalError {
                 contract_version: CONTRACT_VERSION.to_owned(),
                 code: classify_error(&reason),
                 reason,
+                substituted_expr: substituted,
             },
         }
     }
@@ -1118,6 +1194,17 @@ pub fn substitute_schema_json() -> Value {
         "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
         "additionalProperties": { "$ref": "#/$defs/Expr" },
         "default": {}
+    });
+    schema["properties"]["eval_after"] = json!({
+        "type": "boolean",
+        "default": false,
+        "description": "When true, evaluate the substituted expression and include the numeric result"
+    });
+    schema["properties"]["decimal_places"] = json!({
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 128,
+        "default": 12
     });
     schema
 }
