@@ -67,7 +67,8 @@ done
 printf "  Running: cargo mutants %s\n\n" "$FILE_FLAGS"
 
 # Exit 0 = all caught/unviable; exit 1 = missed; exit 2 = timeout only (detected, not missed)
-cargo mutants --timeout-multiplier 3.0 $FILE_FLAGS -- --locked || true
+JOBS="${AGENT_CALC_MUTANTS_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)}"
+cargo mutants --timeout-multiplier 3.0 --jobs "$JOBS" $FILE_FLAGS -- --locked || true
 
 if grep -q '.' mutants.out/missed.txt 2>/dev/null; then
     printf "\n${RED}Mutation gate failed — surviving mutants detected.${RST}\n"
