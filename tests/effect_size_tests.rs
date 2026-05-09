@@ -556,6 +556,21 @@ fn power_proportion_error_on_equal_proportions() {
 }
 
 #[test]
+fn power_proportion_p0_greater_than_p1_succeeds() {
+    // p0 > p1 (reversed direction) should succeed; h is symmetric
+    let n = sample_size(
+        StatsRequest::PowerOneProportion {
+            p0: 0.6,
+            p1: 0.5,
+            alpha: 0.05,
+            power: 0.80,
+        }
+        .evaluate(),
+    );
+    assert_eq!(n, 194, "symmetric: same n as p0=0.5,p1=0.6");
+}
+
+#[test]
 fn power_proportion_default_alpha_power_via_json() {
     let req: StatsRequest =
         serde_json::from_str(r#"{"intent":"power_one_proportion","p0":0.5,"p1":0.6}"#).unwrap();

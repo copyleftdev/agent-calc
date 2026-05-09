@@ -2717,7 +2717,7 @@ fn power_proportion(p0: f64, p1: f64, alpha: f64, power: f64) -> Result<u64, Str
     ensure_probability_open(p1, "p1")?;
     ensure_probability_open(alpha, "alpha")?;
     ensure_probability_open(power, "power")?;
-    if (p0 - p1).abs() < 1e-15 {
+    if p0 == p1 {
         return Err("p0 and p1 must differ — effect size is zero".to_owned());
     }
     let h0 = 2.0 * p0.sqrt().asin();
@@ -5276,5 +5276,67 @@ mod tests {
         })
         .evaluate());
         assert_eq!(result.len(), 4, "lags 0..=3 for n=4, clamped by n-1");
+    }
+
+    // ── effect size helper boundary tests (private-function access) ──────────
+
+    #[test]
+    fn cohen_d_pooled_sd_plus_not_times() {
+        // sample1=[0,2]: mean=1, var=2, n=2
+        // sample2=[5-√2, 5+√2]: mean=5, var=4, n=2
+        // numerator with +: 1*2 + 1*4 = 6  → sp=sqrt(3), d=-4/sqrt(3)
+        // numerator with *: 1*2 * 1*4 = 8  → sp=2,       d=-2
+        let s2_lo = 5.0_f64 - 2.0_f64.sqrt();
+        let s2_hi = 5.0_f64 + 2.0_f64.sqrt();
+        let d = cohen_d_two_sample(&[0.0, 2.0], &[s2_lo, s2_hi]).unwrap();
+        assert!((d - (-4.0 / 3.0_f64.sqrt())).abs() < 1e-10, "d={d}");
+    }
+
+    #[test]
+    fn interpret_d_all_boundaries() {
+        // < 0.2 boundary: 0.2 must be "small" not "negligible"
+        assert_eq!(interpret_d(0.19), "negligible");
+        assert_eq!(interpret_d(0.2), "small"); // kills < 0.2 → <= 0.2
+        assert_eq!(interpret_d(0.3), "small"); // kills < 0.2 → == 0.2 (if such a mutation existed)
+        // < 0.5 boundary: 0.5 must be "medium" not "small"
+        assert_eq!(interpret_d(0.5), "medium"); // kills < 0.5 → <= 0.5
+        assert_eq!(interpret_d(0.6), "medium"); // kills < 0.5 → == 0.5
+        // < 0.8 boundary: 0.8 must be "large" not "medium"
+        assert_eq!(interpret_d(0.8), "large"); // kills < 0.8 → <= 0.8
+        assert_eq!(interpret_d(1.0), "large"); // kills < 0.8 → == 0.8
+        // negative d uses abs
+        assert_eq!(interpret_d(-0.5), "medium");
+        assert_eq!(interpret_d(-0.8), "large");
+    }
+
+    #[test]
+    fn interpret_eta_sq_all_boundaries() {
+        // < 0.01: 0.01 must be "small" not "negligible"
+        assert_eq!(interpret_eta_sq(0.0), "negligible");
+        assert_eq!(interpret_eta_sq(0.01), "small"); // kills < 0.01 → <= 0.01
+        assert_eq!(interpret_eta_sq(0.03), "small"); // kills < 0.06 → == 0.06
+        // < 0.06: 0.06 must be "medium" not "small"
+        assert_eq!(interpret_eta_sq(0.06), "medium"); // kills < 0.06 → <= 0.06
+        assert_eq!(interpret_eta_sq(0.10), "medium"); // kills < 0.14 → == 0.14
+        // < 0.14: 0.14 must be "large" not "medium"
+        assert_eq!(interpret_eta_sq(0.14), "large"); // kills < 0.14 → <= 0.14
+        assert_eq!(interpret_eta_sq(0.20), "large");
+    }
+
+    #[test]
+    fn interpret_r_all_boundaries() {
+        // < 0.1: 0.1 must be "small" not "negligible"
+        assert_eq!(interpret_r(0.05), "negligible"); // kills < 0.1 → == 0.1
+        assert_eq!(interpret_r(0.1), "small"); // kills < 0.1 → <= 0.1
+        assert_eq!(interpret_r(0.2), "small"); // kills < 0.3 → == 0.3
+        // < 0.3: 0.3 must be "medium" not "small"
+        assert_eq!(interpret_r(0.3), "medium"); // kills < 0.3 → <= 0.3
+        assert_eq!(interpret_r(0.4), "medium"); // kills < 0.5 → == 0.5
+        // < 0.5: 0.5 must be "large" not "medium"
+        assert_eq!(interpret_r(0.5), "large"); // kills < 0.5 → <= 0.5
+        assert_eq!(interpret_r(0.9), "large");
+        // interpret_r uses abs
+        assert_eq!(interpret_r(-0.3), "medium");
+        assert_eq!(interpret_r(-0.5), "large");
     }
 }
