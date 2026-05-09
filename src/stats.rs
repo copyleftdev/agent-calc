@@ -38,6 +38,10 @@ fn default_max_lag() -> usize {
     10
 }
 
+fn default_power() -> f64 {
+    0.80
+}
+
 fn default_smoothing() -> f64 {
     0.3
 }
@@ -234,6 +238,46 @@ pub enum StatsRequest {
         distribution: DistributionKind,
         query: DistributionQuery,
     },
+    CohenD {
+        sample1: Vec<f64>,
+        sample2: Vec<f64>,
+    },
+    CohenDOneSample {
+        sample: Vec<f64>,
+        mu0: f64,
+    },
+    EtaSquared {
+        groups: Vec<Vec<f64>>,
+    },
+    CramersV {
+        observed: Vec<Vec<f64>>,
+    },
+    PointBiserialR {
+        binary: Vec<f64>,
+        continuous: Vec<f64>,
+    },
+    PowerOneSampleT {
+        effect_d: f64,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default = "default_power")]
+        power: f64,
+    },
+    PowerTwoSampleT {
+        effect_d: f64,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default = "default_power")]
+        power: f64,
+    },
+    PowerOneProportion {
+        p0: f64,
+        p1: f64,
+        #[serde(default = "default_alpha")]
+        alpha: f64,
+        #[serde(default = "default_power")]
+        power: f64,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -372,6 +416,20 @@ pub enum StatsResponse {
         method: String,
         result: Vec<f64>,
         n: usize,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    EffectSize {
+        contract_version: String,
+        statistic: String,
+        value: f64,
+        interpretation: String,
+        exactness: StatsExactness,
+        checks: Vec<StatsCheck>,
+    },
+    SampleSize {
+        contract_version: String,
+        n: u64,
         exactness: StatsExactness,
         checks: Vec<StatsCheck>,
     },
@@ -526,6 +584,24 @@ impl StatsRequest {
                 contract_version: CONTRACT_VERSION.to_owned(),
                 method: method.to_owned(),
                 result,
+                n,
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::EffectSizeResult {
+                statistic,
+                value,
+                interpretation,
+            }) => StatsResponse::EffectSize {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                statistic: statistic.to_owned(),
+                value,
+                interpretation: interpretation.to_owned(),
+                exactness: StatsExactness::ApproximateF64,
+                checks: default_checks(),
+            },
+            Ok(StatsOutput::SampleSizeResult { n }) => StatsResponse::SampleSize {
+                contract_version: CONTRACT_VERSION.to_owned(),
                 n,
                 exactness: StatsExactness::ApproximateF64,
                 checks: default_checks(),
@@ -808,6 +884,71 @@ impl StatsRequest {
                 distribution,
                 query,
             } => eval_distribution(distribution, query),
+            StatsRequest::CohenD { sample1, sample2 } => {
+                let d = cohen_d_two_sample(sample1, sample2)?;
+                Ok(StatsOutput::EffectSizeResult {
+                    statistic: "cohen_d",
+                    value: d,
+                    interpretation: interpret_d(d),
+                })
+            }
+            StatsRequest::CohenDOneSample { sample, mu0 } => {
+                let d = cohen_d_one_sample(sample, *mu0)?;
+                Ok(StatsOutput::EffectSizeResult {
+                    statistic: "cohen_d",
+                    value: d,
+                    interpretation: interpret_d(d),
+                })
+            }
+            StatsRequest::EtaSquared { groups } => {
+                let eta = eta_squared(groups)?;
+                Ok(StatsOutput::EffectSizeResult {
+                    statistic: "eta_squared",
+                    value: eta,
+                    interpretation: interpret_eta_sq(eta),
+                })
+            }
+            StatsRequest::CramersV { observed } => {
+                let v = cramers_v(observed)?;
+                Ok(StatsOutput::EffectSizeResult {
+                    statistic: "cramers_v",
+                    value: v,
+                    interpretation: interpret_d(v),
+                })
+            }
+            StatsRequest::PointBiserialR { binary, continuous } => {
+                let r = point_biserial_r(binary, continuous)?;
+                Ok(StatsOutput::EffectSizeResult {
+                    statistic: "point_biserial_r",
+                    value: r,
+                    interpretation: interpret_r(r.abs()),
+                })
+            }
+            StatsRequest::PowerOneSampleT {
+                effect_d,
+                alpha,
+                power,
+            } => {
+                let n = power_t(*effect_d, *alpha, *power, false)?;
+                Ok(StatsOutput::SampleSizeResult { n })
+            }
+            StatsRequest::PowerTwoSampleT {
+                effect_d,
+                alpha,
+                power,
+            } => {
+                let n = power_t(*effect_d, *alpha, *power, true)?;
+                Ok(StatsOutput::SampleSizeResult { n })
+            }
+            StatsRequest::PowerOneProportion {
+                p0,
+                p1,
+                alpha,
+                power,
+            } => {
+                let n = power_proportion(*p0, *p1, *alpha, *power)?;
+                Ok(StatsOutput::SampleSizeResult { n })
+            }
         }
     }
 }
@@ -849,7 +990,15 @@ pub fn stats_schema_json() -> Value {
             {"$ref": "#/$defs/PairedT"},
             {"$ref": "#/$defs/ChiSquareGof"},
             {"$ref": "#/$defs/OneWayAnova"},
-            {"$ref": "#/$defs/ProbabilityDistribution"}
+            {"$ref": "#/$defs/ProbabilityDistribution"},
+            {"$ref": "#/$defs/CohenD"},
+            {"$ref": "#/$defs/CohenDOneSample"},
+            {"$ref": "#/$defs/EtaSquared"},
+            {"$ref": "#/$defs/CramersV"},
+            {"$ref": "#/$defs/PointBiserialR"},
+            {"$ref": "#/$defs/PowerOneSampleT"},
+            {"$ref": "#/$defs/PowerTwoSampleT"},
+            {"$ref": "#/$defs/PowerOneProportion"}
         ],
         "$defs": {
             "Sample": {
@@ -1211,6 +1360,97 @@ pub fn stats_schema_json() -> Value {
                      "properties": {"quantile": {"type": "object", "required": ["p"],
                          "properties": {"p": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}}}}}
                 ]
+            },
+            "CohenD": {
+                "type": "object",
+                "required": ["intent", "sample1", "sample2"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "cohen_d"},
+                    "sample1": {"$ref": "#/$defs/Sample"},
+                    "sample2": {"$ref": "#/$defs/Sample"}
+                }
+            },
+            "CohenDOneSample": {
+                "type": "object",
+                "required": ["intent", "sample", "mu0"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "cohen_d_one_sample"},
+                    "sample": {"$ref": "#/$defs/Sample"},
+                    "mu0": {"type": "number"}
+                }
+            },
+            "EtaSquared": {
+                "type": "object",
+                "required": ["intent", "groups"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "eta_squared"},
+                    "groups": {
+                        "type": "array",
+                        "items": {"$ref": "#/$defs/Sample"},
+                        "minItems": 2
+                    }
+                }
+            },
+            "CramersV": {
+                "type": "object",
+                "required": ["intent", "observed"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "cramers_v"},
+                    "observed": {
+                        "type": "array",
+                        "items": {"$ref": "#/$defs/Sample"},
+                        "minItems": 2,
+                        "description": "r×c contingency table of non-negative counts"
+                    }
+                }
+            },
+            "PointBiserialR": {
+                "type": "object",
+                "required": ["intent", "binary", "continuous"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "point_biserial_r"},
+                    "binary": {"type": "array", "items": {"type": "number", "enum": [0, 1]}, "minItems": 2},
+                    "continuous": {"$ref": "#/$defs/Sample"}
+                }
+            },
+            "PowerOneSampleT": {
+                "type": "object",
+                "required": ["intent", "effect_d"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "power_one_sample_t"},
+                    "effect_d": {"type": "number"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05},
+                    "power": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.80}
+                }
+            },
+            "PowerTwoSampleT": {
+                "type": "object",
+                "required": ["intent", "effect_d"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "power_two_sample_t"},
+                    "effect_d": {"type": "number"},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05},
+                    "power": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.80}
+                }
+            },
+            "PowerOneProportion": {
+                "type": "object",
+                "required": ["intent", "p0", "p1"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "power_one_proportion"},
+                    "p0": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+                    "p1": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+                    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05},
+                    "power": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.80}
+                }
             }
         }
     })
@@ -1282,6 +1522,14 @@ enum StatsOutput {
         method: &'static str,
         result: Vec<f64>,
         n: usize,
+    },
+    EffectSizeResult {
+        statistic: &'static str,
+        value: f64,
+        interpretation: &'static str,
+    },
+    SampleSizeResult {
+        n: u64,
     },
 }
 
@@ -2313,6 +2561,211 @@ fn default_checks() -> Vec<StatsCheck> {
         name: "computed_by_statrs_or_checked_adapter".to_owned(),
         passed: true,
     }]
+}
+
+fn cohen_d_two_sample(sample1: &[f64], sample2: &[f64]) -> Result<f64, String> {
+    for (s, name) in [(sample1, "sample1"), (sample2, "sample2")] {
+        if s.len() < 2 {
+            return Err(format!("{name} must contain at least 2 values"));
+        }
+        if !s.iter().all(|v| v.is_finite()) {
+            return Err(format!("{name} values must be finite"));
+        }
+    }
+    let n1 = sample1.len() as f64;
+    let n2 = sample2.len() as f64;
+    let mean1 = sample1.iter().sum::<f64>() / n1;
+    let mean2 = sample2.iter().sum::<f64>() / n2;
+    let var1: f64 = sample1.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0);
+    let var2: f64 = sample2.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0);
+    let sp = (((n1 - 1.0) * var1 + (n2 - 1.0) * var2) / (n1 + n2 - 2.0)).sqrt();
+    if sp == 0.0 {
+        return Err("pooled standard deviation is zero — Cohen's d is undefined".to_owned());
+    }
+    Ok((mean1 - mean2) / sp)
+}
+
+fn cohen_d_one_sample(sample: &[f64], mu0: f64) -> Result<f64, String> {
+    if sample.len() < 2 {
+        return Err("sample must contain at least 2 values".to_owned());
+    }
+    if !sample.iter().all(|v| v.is_finite()) {
+        return Err("sample values must be finite".to_owned());
+    }
+    ensure_finite(mu0, "mu0")?;
+    let n = sample.len() as f64;
+    let mean = sample.iter().sum::<f64>() / n;
+    let var: f64 = sample.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    let s = var.sqrt();
+    if s == 0.0 {
+        return Err("sample standard deviation is zero — Cohen's d is undefined".to_owned());
+    }
+    Ok((mean - mu0) / s)
+}
+
+fn eta_squared(groups: &[Vec<f64>]) -> Result<f64, String> {
+    if groups.len() < 2 {
+        return Err("eta_squared requires at least 2 groups".to_owned());
+    }
+    for (i, g) in groups.iter().enumerate() {
+        if g.len() < 2 {
+            return Err(format!("group {i} must contain at least 2 values"));
+        }
+        if !g.iter().all(|v| v.is_finite()) {
+            return Err(format!("group {i} values must be finite"));
+        }
+    }
+    let n_total: usize = groups.iter().map(|g| g.len()).sum();
+    let grand_mean: f64 = groups.iter().flat_map(|g| g.iter()).sum::<f64>() / n_total as f64;
+    let ss_between: f64 = groups
+        .iter()
+        .map(|g| {
+            let n_k = g.len() as f64;
+            let mean_k = g.iter().sum::<f64>() / n_k;
+            n_k * (mean_k - grand_mean).powi(2)
+        })
+        .sum();
+    let ss_total: f64 = groups
+        .iter()
+        .flat_map(|g| g.iter())
+        .map(|x| (x - grand_mean).powi(2))
+        .sum();
+    if ss_total == 0.0 {
+        return Err("total variance is zero — eta-squared is undefined".to_owned());
+    }
+    Ok(ss_between / ss_total)
+}
+
+fn cramers_v(observed: &[Vec<f64>]) -> Result<f64, String> {
+    let r = observed.len();
+    if r < 2 {
+        return Err("cramers_v requires at least 2 rows".to_owned());
+    }
+    let c = observed[0].len();
+    if c < 2 {
+        return Err("cramers_v requires at least 2 columns".to_owned());
+    }
+    for (i, row) in observed.iter().enumerate() {
+        if row.len() != c {
+            return Err(format!("row {i} has {} columns, expected {c}", row.len()));
+        }
+        if !row.iter().all(|v| v.is_finite() && *v >= 0.0) {
+            return Err(format!("row {i} values must be finite and non-negative"));
+        }
+    }
+    let n: f64 = observed.iter().flat_map(|row| row.iter()).sum();
+    if n == 0.0 {
+        return Err("observed table sum is zero".to_owned());
+    }
+    let row_sums: Vec<f64> = observed.iter().map(|row| row.iter().sum()).collect();
+    let col_sums: Vec<f64> = (0..c)
+        .map(|j| observed.iter().map(|row| row[j]).sum())
+        .collect();
+    let chi2: f64 = observed
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, &o)| {
+                    let e = row_sums[i] * col_sums[j] / n;
+                    if e == 0.0 { 0.0 } else { (o - e).powi(2) / e }
+                })
+                .sum::<f64>()
+        })
+        .sum();
+    let k = r.min(c) as f64;
+    Ok((chi2 / (n * (k - 1.0))).sqrt())
+}
+
+fn point_biserial_r(binary: &[f64], continuous: &[f64]) -> Result<f64, String> {
+    if binary.len() != continuous.len() {
+        return Err("binary and continuous must have the same length".to_owned());
+    }
+    let n = binary.len();
+    if n < 2 {
+        return Err("point_biserial_r requires at least 2 observations".to_owned());
+    }
+    if !binary.iter().all(|v| v.is_finite()) {
+        return Err("binary values must be finite".to_owned());
+    }
+    if !continuous.iter().all(|v| v.is_finite()) {
+        return Err("continuous values must be finite".to_owned());
+    }
+    if !binary.iter().all(|v| *v == 0.0 || *v == 1.0) {
+        return Err("binary values must be 0 or 1".to_owned());
+    }
+    correlation(binary, continuous).map(|(r, _)| r)
+}
+
+fn power_t(effect_d: f64, alpha: f64, power: f64, two_sample: bool) -> Result<u64, String> {
+    if !effect_d.is_finite() || effect_d == 0.0 {
+        return Err("effect_d must be finite and non-zero".to_owned());
+    }
+    ensure_probability_open(alpha, "alpha")?;
+    ensure_probability_open(power, "power")?;
+    let norm = Normal::new(0.0, 1.0).map_err(|e| e.to_string())?;
+    let z_alpha = norm.inverse_cdf(1.0 - alpha / 2.0);
+    let z_beta = norm.inverse_cdf(power);
+    let n_raw = ((z_alpha + z_beta) / effect_d).powi(2);
+    let n = n_raw.ceil() as u64;
+    if two_sample { Ok(n * 2) } else { Ok(n) }
+}
+
+fn power_proportion(p0: f64, p1: f64, alpha: f64, power: f64) -> Result<u64, String> {
+    ensure_probability_open(p0, "p0")?;
+    ensure_probability_open(p1, "p1")?;
+    ensure_probability_open(alpha, "alpha")?;
+    ensure_probability_open(power, "power")?;
+    if (p0 - p1).abs() < 1e-15 {
+        return Err("p0 and p1 must differ — effect size is zero".to_owned());
+    }
+    let h0 = 2.0 * p0.sqrt().asin();
+    let h1 = 2.0 * p1.sqrt().asin();
+    let h = (h1 - h0).abs();
+    let norm = Normal::new(0.0, 1.0).map_err(|e| e.to_string())?;
+    let z_alpha = norm.inverse_cdf(1.0 - alpha / 2.0);
+    let z_beta = norm.inverse_cdf(power);
+    let n_raw = ((z_alpha + z_beta) / h).powi(2);
+    Ok(n_raw.ceil() as u64)
+}
+
+fn interpret_d(d: f64) -> &'static str {
+    let a = d.abs();
+    if a < 0.2 {
+        "negligible"
+    } else if a < 0.5 {
+        "small"
+    } else if a < 0.8 {
+        "medium"
+    } else {
+        "large"
+    }
+}
+
+fn interpret_eta_sq(eta: f64) -> &'static str {
+    if eta < 0.01 {
+        "negligible"
+    } else if eta < 0.06 {
+        "small"
+    } else if eta < 0.14 {
+        "medium"
+    } else {
+        "large"
+    }
+}
+
+fn interpret_r(r: f64) -> &'static str {
+    let a = r.abs();
+    if a < 0.1 {
+        "negligible"
+    } else if a < 0.3 {
+        "small"
+    } else if a < 0.5 {
+        "medium"
+    } else {
+        "large"
+    }
 }
 
 #[cfg(test)]

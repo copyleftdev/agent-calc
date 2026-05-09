@@ -11,7 +11,15 @@ fn hypothesis(resp: StatsResponse) -> (f64, f64, f64, f64, f64, bool, String) {
             reject_h0,
             conclusion,
             ..
-        } => (statistic, p_value, dof, critical_value, alpha, reject_h0, conclusion),
+        } => (
+            statistic,
+            p_value,
+            dof,
+            critical_value,
+            alpha,
+            reject_h0,
+            conclusion,
+        ),
         other => panic!("expected HypothesisTest, got {other:?}"),
     }
 }
@@ -147,10 +155,9 @@ fn mwu_critical_value_not_unit_two_tailed() {
 
 #[test]
 fn mwu_default_alpha_via_json() {
-    let req: StatsRequest = serde_json::from_str(
-        r#"{"intent":"mann_whitney_u","sample1":[1,2,3],"sample2":[4,5,6]}"#,
-    )
-    .unwrap();
+    let req: StatsRequest =
+        serde_json::from_str(r#"{"intent":"mann_whitney_u","sample1":[1,2,3],"sample2":[4,5,6]}"#)
+            .unwrap();
     let (_, _, _, _, alpha, _, _) = hypothesis(req.evaluate());
     assert!((alpha - 0.05).abs() < 1e-12);
 }
@@ -388,10 +395,9 @@ fn wilcoxon_rejects_nonfinite_after_value() {
 
 #[test]
 fn wilcoxon_default_alpha_via_json() {
-    let req: StatsRequest = serde_json::from_str(
-        r#"{"intent":"wilcoxon_signed","before":[1,2,3],"after":[2,3,4]}"#,
-    )
-    .unwrap();
+    let req: StatsRequest =
+        serde_json::from_str(r#"{"intent":"wilcoxon_signed","before":[1,2,3],"after":[2,3,4]}"#)
+            .unwrap();
     let (_, _, _, _, alpha, _, _) = hypothesis(req.evaluate());
     assert!((alpha - 0.05).abs() < 1e-12);
 }
@@ -541,10 +547,8 @@ fn kw_rejects_group_with_one_element() {
 
 #[test]
 fn kw_default_alpha_via_json() {
-    let req: StatsRequest = serde_json::from_str(
-        r#"{"intent":"kruskal_wallis","groups":[[1,2],[3,4]]}"#,
-    )
-    .unwrap();
+    let req: StatsRequest =
+        serde_json::from_str(r#"{"intent":"kruskal_wallis","groups":[[1,2],[3,4]]}"#).unwrap();
     let (_, _, _, _, alpha, _, _) = hypothesis(req.evaluate());
     assert!((alpha - 0.05).abs() < 1e-12);
 }
