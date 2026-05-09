@@ -222,6 +222,16 @@ fn chi2_pdf_at_zero_succeeds() {
 }
 
 #[test]
+fn chi2_cdf_at_zero_is_zero() {
+    // CDF(0) = 0 for any chi-squared; x=0 must succeed (kills < → <= mutation)
+    let v = prob(dist_req(
+        DistributionKind::ChiSquared { df: 2.0 },
+        DistributionQuery::Cdf { x: 0.0 },
+    ));
+    assert!(v.abs() < 1e-12);
+}
+
+#[test]
 fn chi2_pdf_rejects_negative_x() {
     let e = err(dist_req(
         DistributionKind::ChiSquared { df: 2.0 },
@@ -240,6 +250,17 @@ fn chi2_cdf_rejects_negative_x() {
 }
 
 // ── FDist ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn f_pdf_at_zero_d1_2() {
+    // x=0 must not error — kills < → <= guard mutation in eval_distribution.
+    // statrs computes 0/0 via the sqrt formula and returns NaN; that is a
+    // Probability response (not Error), so prob() succeeds without asserting value.
+    let _v = prob(dist_req(
+        DistributionKind::FDist { d1: 2.0, d2: 10.0 },
+        DistributionQuery::Pdf { x: 0.0 },
+    ));
+}
 
 #[test]
 fn f_cdf_at_zero_is_zero() {
@@ -341,6 +362,16 @@ fn binomial_pmf_at_zero_succeeds() {
 }
 
 #[test]
+fn binomial_cdf_at_zero() {
+    // CDF(0) = P(k=0) = 0.5^10 = 1/1024; x=0 must not early-return 0 (kills < → <= mutation)
+    let v = prob(dist_req(
+        DistributionKind::Binomial { n: 10, p: 0.5 },
+        DistributionQuery::Cdf { x: 0.0 },
+    ));
+    assert!((v - 1.0 / 1024.0).abs() < 1e-12);
+}
+
+#[test]
 fn binomial_cdf_negative_x_returns_zero() {
     // CDF at x<0 is 0 for a non-negative discrete distribution
     let v = prob(dist_req(
@@ -417,6 +448,16 @@ fn poisson_quantile_median_lambda3() {
         DistributionQuery::Quantile { p: 0.5 },
     ));
     assert_eq!(v, 3.0);
+}
+
+#[test]
+fn poisson_cdf_at_zero_lambda1() {
+    // CDF(0, lambda=1) = P(k=0) = e^(-1); x=0 must not early-return 0 (kills < → <= mutation)
+    let v = prob(dist_req(
+        DistributionKind::Poisson { lambda: 1.0 },
+        DistributionQuery::Cdf { x: 0.0 },
+    ));
+    assert!((v - (-1.0_f64).exp()).abs() < 1e-12);
 }
 
 #[test]
@@ -507,6 +548,16 @@ fn exp_pdf_rejects_negative_x() {
         DistributionQuery::Pdf { x: -1.0 },
     ));
     assert!(!e.is_empty());
+}
+
+#[test]
+fn exp_cdf_at_zero_is_zero() {
+    // cdf(0) = 1 - exp(0) = 0; x=0 must succeed not error (kills < → <= mutation)
+    let v = prob(dist_req(
+        DistributionKind::Exponential { rate: 2.0 },
+        DistributionQuery::Cdf { x: 0.0 },
+    ));
+    assert!(v.abs() < 1e-12);
 }
 
 #[test]
