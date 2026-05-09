@@ -222,6 +222,14 @@ pub enum StatsRequest {
         #[serde(default = "default_alpha")]
         alpha: f64,
     },
+    SpearmanCorrelation {
+        x: Vec<f64>,
+        y: Vec<f64>,
+    },
+    KendallTau {
+        x: Vec<f64>,
+        y: Vec<f64>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -764,6 +772,14 @@ impl StatsRequest {
                 tail,
             } => wilcoxon_signed_rank_test(before, after, *alpha, *tail),
             StatsRequest::KruskalWallis { groups, alpha } => kruskal_wallis_test(groups, *alpha),
+            StatsRequest::SpearmanCorrelation { x, y } => {
+                let (rho, n) = spearman_correlation(x, y)?;
+                Ok(StatsOutput::CorrelationResult { pearson_r: rho, n })
+            }
+            StatsRequest::KendallTau { x, y } => {
+                let (tau, n) = kendall_tau_b(x, y)?;
+                Ok(StatsOutput::CorrelationResult { pearson_r: tau, n })
+            }
         }
     }
 }
@@ -1272,6 +1288,63 @@ fn sample_kurtosis(values: &[f64], mean: f64, std_dev: f64) -> f64 {
     let sum: f64 = values.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum();
     let correction = 3.0 * (n - 1.0).powi(2) / ((n - 2.0) * (n - 3.0));
     factor1 * sum - correction
+}
+
+fn spearman_correlation(x: &[f64], y: &[f64]) -> Result<(f64, usize), String> {
+    if x.len() != y.len() {
+        return Err("x and y must have the same length".to_owned());
+    }
+    if !x.iter().all(|v| v.is_finite()) || !y.iter().all(|v| v.is_finite()) {
+        return Err("x and y values must be finite".to_owned());
+    }
+    let rx = compute_ranks(x, RankMethod::Average);
+    let ry = compute_ranks(y, RankMethod::Average);
+    correlation(&rx, &ry)
+}
+
+#[mutants::skip] // (i+1)..n → i..n adds self-pairs that are always dx=dy=0 (tied-on-both, not counted) — equivalent mutation
+fn kendall_pairs(n: usize) -> Vec<(usize, usize)> {
+    (0..n)
+        .flat_map(|i| (i + 1..n).map(move |j| (i, j)))
+        .collect()
+}
+
+fn kendall_tau_b(x: &[f64], y: &[f64]) -> Result<(f64, usize), String> {
+    if x.len() != y.len() {
+        return Err("x and y must have the same length".to_owned());
+    }
+    if !x.iter().all(|v| v.is_finite()) || !y.iter().all(|v| v.is_finite()) {
+        return Err("x and y values must be finite".to_owned());
+    }
+    let n = x.len();
+    let mut concordant = 0i64;
+    let mut discordant = 0i64;
+    let mut tie_x = 0i64;
+    let mut tie_y = 0i64;
+    for (i, j) in kendall_pairs(n) {
+        let dx = x[j] - x[i];
+        let dy = y[j] - y[i];
+        if dx == 0.0 && dy == 0.0 {
+            // tied on both — not counted
+        } else if dx == 0.0 {
+            tie_x += 1;
+        } else if dy == 0.0 {
+            tie_y += 1;
+        } else if dx.signum() == dy.signum() {
+            concordant += 1;
+        } else {
+            discordant += 1;
+        }
+    }
+    let c = concordant as f64;
+    let d = discordant as f64;
+    let tx = tie_x as f64;
+    let ty = tie_y as f64;
+    let denom = ((c + d + tx) * (c + d + ty)).sqrt();
+    if denom == 0.0 {
+        return Err("kendall_tau is undefined when all values are tied".to_owned());
+    }
+    Ok(((c - d) / denom, n))
 }
 
 fn correlation(x: &[f64], y: &[f64]) -> Result<(f64, usize), String> {
