@@ -230,6 +230,10 @@ pub enum StatsRequest {
         x: Vec<f64>,
         y: Vec<f64>,
     },
+    ProbabilityDistribution {
+        distribution: DistributionKind,
+        query: DistributionQuery,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -240,6 +244,26 @@ pub enum RankMethod {
     Max,
     First,
     Last,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DistributionKind {
+    Normal { mean: f64, std_dev: f64 },
+    StudentT { df: f64 },
+    ChiSquared { df: f64 },
+    FDist { d1: f64, d2: f64 },
+    Binomial { n: u64, p: f64 },
+    Poisson { lambda: f64 },
+    Exponential { rate: f64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DistributionQuery {
+    Pdf { x: f64 },
+    Cdf { x: f64 },
+    Quantile { p: f64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -780,6 +804,10 @@ impl StatsRequest {
                 let (tau, n) = kendall_tau_b(x, y)?;
                 Ok(StatsOutput::CorrelationResult { pearson_r: tau, n })
             }
+            StatsRequest::ProbabilityDistribution {
+                distribution,
+                query,
+            } => eval_distribution(distribution, query),
         }
     }
 }
@@ -820,7 +848,8 @@ pub fn stats_schema_json() -> Value {
             {"$ref": "#/$defs/TwoSampleT"},
             {"$ref": "#/$defs/PairedT"},
             {"$ref": "#/$defs/ChiSquareGof"},
-            {"$ref": "#/$defs/OneWayAnova"}
+            {"$ref": "#/$defs/OneWayAnova"},
+            {"$ref": "#/$defs/ProbabilityDistribution"}
         ],
         "$defs": {
             "Sample": {
@@ -1136,6 +1165,52 @@ pub fn stats_schema_json() -> Value {
                     },
                     "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.05}
                 }
+            },
+            "ProbabilityDistribution": {
+                "type": "object",
+                "required": ["intent", "distribution", "query"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "probability_distribution"},
+                    "distribution": {"$ref": "#/$defs/DistributionKind"},
+                    "query": {"$ref": "#/$defs/DistributionQuery"}
+                }
+            },
+            "DistributionKind": {
+                "oneOf": [
+                    {"type": "object", "required": ["normal"], "additionalProperties": false,
+                     "properties": {"normal": {"type": "object", "required": ["mean", "std_dev"],
+                         "properties": {"mean": {"type": "number"}, "std_dev": {"type": "number", "exclusiveMinimum": 0}}}}},
+                    {"type": "object", "required": ["student_t"], "additionalProperties": false,
+                     "properties": {"student_t": {"type": "object", "required": ["df"],
+                         "properties": {"df": {"type": "number", "exclusiveMinimum": 0}}}}},
+                    {"type": "object", "required": ["chi_squared"], "additionalProperties": false,
+                     "properties": {"chi_squared": {"type": "object", "required": ["df"],
+                         "properties": {"df": {"type": "number", "exclusiveMinimum": 0}}}}},
+                    {"type": "object", "required": ["f_dist"], "additionalProperties": false,
+                     "properties": {"f_dist": {"type": "object", "required": ["d1", "d2"],
+                         "properties": {"d1": {"type": "number", "exclusiveMinimum": 0}, "d2": {"type": "number", "exclusiveMinimum": 0}}}}},
+                    {"type": "object", "required": ["binomial"], "additionalProperties": false,
+                     "properties": {"binomial": {"type": "object", "required": ["n", "p"],
+                         "properties": {"n": {"type": "integer", "minimum": 0}, "p": {"type": "number", "minimum": 0, "maximum": 1}}}}},
+                    {"type": "object", "required": ["poisson"], "additionalProperties": false,
+                     "properties": {"poisson": {"type": "object", "required": ["lambda"],
+                         "properties": {"lambda": {"type": "number", "exclusiveMinimum": 0}}}}},
+                    {"type": "object", "required": ["exponential"], "additionalProperties": false,
+                     "properties": {"exponential": {"type": "object", "required": ["rate"],
+                         "properties": {"rate": {"type": "number", "exclusiveMinimum": 0}}}}}
+                ]
+            },
+            "DistributionQuery": {
+                "oneOf": [
+                    {"type": "object", "required": ["pdf"], "additionalProperties": false,
+                     "properties": {"pdf": {"type": "object", "required": ["x"], "properties": {"x": {"type": "number"}}}}},
+                    {"type": "object", "required": ["cdf"], "additionalProperties": false,
+                     "properties": {"cdf": {"type": "object", "required": ["x"], "properties": {"x": {"type": "number"}}}}},
+                    {"type": "object", "required": ["quantile"], "additionalProperties": false,
+                     "properties": {"quantile": {"type": "object", "required": ["p"],
+                         "properties": {"p": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}}}}}
+                ]
             }
         }
     })
@@ -2026,6 +2101,165 @@ fn kruskal_wallis_test(groups: &[Vec<f64>], alpha: f64) -> Result<StatsOutput, S
         reject_h0,
         conclusion,
     })
+}
+
+fn eval_distribution(
+    distribution: &DistributionKind,
+    query: &DistributionQuery,
+) -> Result<StatsOutput, String> {
+    match distribution {
+        DistributionKind::Normal { mean, std_dev } => {
+            let dist = normal(*mean, *std_dev)?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    ensure_finite(*x, "x")?;
+                    Ok(StatsOutput::Probability(dist.pdf(*x)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    ensure_finite(*x, "x")?;
+                    Ok(StatsOutput::Probability(dist.cdf(*x)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p)))
+                }
+            }
+        }
+        DistributionKind::StudentT { df } => {
+            ensure_positive_finite(*df, "df")?;
+            let dist = StudentsT::new(0.0, 1.0, *df).map_err(|e| e.to_string())?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    ensure_finite(*x, "x")?;
+                    Ok(StatsOutput::Probability(dist.pdf(*x)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    ensure_finite(*x, "x")?;
+                    Ok(StatsOutput::Probability(dist.cdf(*x)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p)))
+                }
+            }
+        }
+        DistributionKind::ChiSquared { df } => {
+            ensure_positive_finite(*df, "df")?;
+            let dist = ChiSquared::new(*df).map_err(|e| e.to_string())?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be non-negative for chi_squared pdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.pdf(*x)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be non-negative for chi_squared cdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.cdf(*x)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p)))
+                }
+            }
+        }
+        DistributionKind::FDist { d1, d2 } => {
+            ensure_positive_finite(*d1, "d1")?;
+            ensure_positive_finite(*d2, "d2")?;
+            let dist = FisherSnedecor::new(*d1, *d2).map_err(|e| e.to_string())?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be non-negative for f_dist pdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.pdf(*x)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be non-negative for f_dist cdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.cdf(*x)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p)))
+                }
+            }
+        }
+        DistributionKind::Binomial { n, p } => {
+            let dist = binomial(*n, *p)?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be a non-negative integer for binomial pdf".to_owned());
+                    }
+                    if x.fract() != 0.0 {
+                        return Err("x must be a non-negative integer for binomial pdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.pmf(*x as u64)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    if *x < 0.0 {
+                        return Ok(StatsOutput::Probability(0.0));
+                    }
+                    Ok(StatsOutput::Probability(dist.cdf(x.floor() as u64)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p) as f64))
+                }
+            }
+        }
+        DistributionKind::Poisson { lambda } => {
+            ensure_positive_finite(*lambda, "lambda")?;
+            let dist = Poisson::new(*lambda).map_err(|e| e.to_string())?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be a non-negative integer for poisson pdf".to_owned());
+                    }
+                    if x.fract() != 0.0 {
+                        return Err("x must be a non-negative integer for poisson pdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.pmf(*x as u64)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    if *x < 0.0 {
+                        return Ok(StatsOutput::Probability(0.0));
+                    }
+                    Ok(StatsOutput::Probability(dist.cdf(x.floor() as u64)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p) as f64))
+                }
+            }
+        }
+        DistributionKind::Exponential { rate } => {
+            ensure_positive_finite(*rate, "rate")?;
+            let dist = Exp::new(*rate).map_err(|e| e.to_string())?;
+            match query {
+                DistributionQuery::Pdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be non-negative for exponential pdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.pdf(*x)))
+                }
+                DistributionQuery::Cdf { x } => {
+                    if *x < 0.0 {
+                        return Err("x must be non-negative for exponential cdf".to_owned());
+                    }
+                    Ok(StatsOutput::Probability(dist.cdf(*x)))
+                }
+                DistributionQuery::Quantile { p } => {
+                    ensure_probability_open(*p, "p")?;
+                    Ok(StatsOutput::Quantile(dist.inverse_cdf(*p)))
+                }
+            }
+        }
+    }
 }
 
 fn normal(mean: f64, std_dev: f64) -> Result<Normal, String> {
