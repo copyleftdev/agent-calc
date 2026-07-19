@@ -1,5 +1,7 @@
 # agent-calc
 
+[![Tip my tokens](https://tokentip.to/badge/copyleftdev.svg?logo=1)](https://tokentip.to/@copyleftdev)
+
 `agent-calc` is an AI-native exact calculator and contract-first Rust CLI for
 deterministic symbolic math, exact rational arithmetic, typed JSON schemas,
 property-based testing, and mutation-tested computation workflows.
