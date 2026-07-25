@@ -16,6 +16,7 @@ pub struct Rational {
 pub enum RationalError {
     ZeroDenominator,
     InvalidInteger(String),
+    InvalidDecimal(String),
 }
 
 impl fmt::Display for RationalError {
@@ -23,6 +24,7 @@ impl fmt::Display for RationalError {
         match self {
             RationalError::ZeroDenominator => write!(f, "denominator must not be zero"),
             RationalError::InvalidInteger(value) => write!(f, "invalid integer `{value}`"),
+            RationalError::InvalidDecimal(value) => write!(f, "invalid decimal `{value}`"),
         }
     }
 }
@@ -75,6 +77,36 @@ impl Rational {
     pub fn parse(numerator: &str, denominator: &str) -> Result<Self, RationalError> {
         let numerator = parse_bigint(numerator)?;
         let denominator = parse_bigint(denominator)?;
+        Self::new(numerator, denominator)
+    }
+
+    /// Parse a fixed-point decimal string exactly, without an `f64` conversion.
+    pub fn parse_decimal(value: &str) -> Result<Self, RationalError> {
+        let (negative, unsigned) = match value.strip_prefix('-') {
+            Some(unsigned) => (true, unsigned),
+            None => (false, value),
+        };
+        let mut parts = unsigned.split('.');
+        let whole = parts.next().unwrap_or_default();
+        let fractional = parts.next();
+        if parts.next().is_some()
+            || whole.is_empty()
+            || !whole.bytes().all(|byte| byte.is_ascii_digit())
+            || fractional.is_some_and(|digits| {
+                digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        {
+            return Err(RationalError::InvalidDecimal(value.to_owned()));
+        }
+
+        let fractional = fractional.unwrap_or_default();
+        let digits = format!("{whole}{fractional}");
+        let mut numerator = BigInt::from_str(&digits)
+            .map_err(|_| RationalError::InvalidDecimal(value.to_owned()))?;
+        if negative {
+            numerator = -numerator;
+        }
+        let denominator = BigInt::from(10u8).pow(fractional.len() as u32);
         Self::new(numerator, denominator)
     }
 
@@ -324,6 +356,22 @@ mod tests {
         assert_eq!(Rational::new(6, -8).unwrap().to_string(), "-3/4");
         assert_eq!(Rational::new(-6, -8).unwrap().to_string(), "3/4");
         assert_eq!(Rational::new(0, -8).unwrap(), Rational::zero());
+    }
+
+    #[test]
+    fn parses_fixed_point_decimals_exactly() {
+        assert_eq!(
+            Rational::parse_decimal("123.45").unwrap().to_string(),
+            "2469/20"
+        );
+        assert_eq!(
+            Rational::parse_decimal("-0.0825").unwrap().to_string(),
+            "-33/400"
+        );
+        assert_eq!(Rational::parse_decimal("100").unwrap().to_string(), "100");
+        assert!(Rational::parse_decimal(".5").is_err());
+        assert!(Rational::parse_decimal("1.").is_err());
+        assert!(Rational::parse_decimal("1e2").is_err());
     }
 
     #[test]

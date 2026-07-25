@@ -24,7 +24,10 @@ pub use assumptions::{
 };
 pub use bridge::{ALLOWED_TOOL_COMMANDS, execute_tool_json, tool_schema_json};
 pub use calculus::{CalculusRequest, CalculusResponse, calculus_schema_json};
-pub use finance::{FinanceCheck, FinanceRequest, FinanceResponse, finance_schema_json};
+pub use finance::{
+    DecimalRounding, DiscountedCashFlowPrice, FinanceCheck, FinanceRequest, FinanceResponse,
+    PriceValue, finance_schema_json,
+};
 pub use inequality::{
     InequalityInput, InequalityRelation, InequalityRequest, InequalityResponse, SolutionSet,
     inequality_schema_json,

@@ -333,6 +333,15 @@ fn schema_finance_emits_finance_request_schema() {
         json["$defs"]["NetPresentValue"]["properties"]["cash_flows"]["minItems"],
         1
     );
+    assert_eq!(
+        json["$defs"]["DiscountedCashFlow"]["properties"]["cash_flows"]["minItems"],
+        1
+    );
+    assert_eq!(
+        json["$defs"]["DiscountedCashFlow"]["properties"]["cash_flows"]["maxItems"],
+        1200
+    );
+    assert_eq!(json["$defs"]["DecimalRounding"]["default"], "half_even");
 }
 
 #[test]
@@ -2183,6 +2192,44 @@ fn finance_reads_stdin_and_computes_npv() {
 }
 
 #[test]
+fn finance_computes_exact_discounted_cash_flow_price() {
+    let mut child = Command::new(bin())
+        .arg("finance")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "intent": "discounted_cash_flow",
+                "cash_flows": ["110.00"],
+                "discount_rate": "0.10",
+                "terminal_growth_rate": "0.00",
+                "decimal_places": 2,
+                "rounding_mode": "half_even"
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(json["status"], "price_model");
+    assert_eq!(json["forecast_present_value"]["display"], "100");
+    assert_eq!(json["terminal_value"]["display"], "1100");
+    assert_eq!(json["terminal_present_value"]["display"], "1000");
+    assert_eq!(json["price"]["display"], "1100");
+    assert_eq!(json["decimal"], "1100.00");
+    assert_eq!(json["rounding_mode"], "half_even");
+}
+
+#[test]
 fn finance_rejects_undefined_discount_factor() {
     let mut child = Command::new(bin())
         .arg("finance")
@@ -2818,6 +2865,38 @@ fn stats_computes_linear_regression() {
     assert!((slope - 2.0).abs() < 1e-9, "slope = {slope}");
     assert!((intercept - 1.0).abs() < 1e-9, "intercept = {intercept}");
     assert!((json["r_squared"].as_f64().unwrap() - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn stats_multiple_regression_reports_numerical_diagnostics() {
+    let input = serde_json::json!({
+        "intent": "linear_regression",
+        "x": [[1.0, 2.0], [2.0, 1.0], [3.0, 3.0], [4.0, 2.0], [5.0, 4.0]],
+        "y": [3.0, 5.0, 8.0, 9.0, 13.0]
+    });
+    let mut child = Command::new(bin())
+        .arg("stats")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(json["status"], "multiple_regression");
+    assert_eq!(json["numerical_rank"], 3);
+    let condition_number = json["condition_number"].as_f64().unwrap();
+    assert!(
+        condition_number.is_finite() && condition_number >= 1.0,
+        "condition_number={condition_number}"
+    );
 }
 
 #[test]
