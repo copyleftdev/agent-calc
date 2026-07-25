@@ -40,7 +40,7 @@ help: ## Show available targets.
 	@printf "  make full\n\n"
 
 .PHONY: all
-all: fmt-check check test package ## Run the standard local release gate, excluding mutation.
+all: fmt-check check clippy test package ## Run the standard local release gate, excluding mutation.
 
 .PHONY: full
 full: all mutants ## Run the full release gate, including mutation testing.
@@ -88,7 +88,7 @@ check: ## Type-check all targets.
 
 .PHONY: clippy
 clippy: ## Run clippy when the component is installed.
-	@if rustup component list --installed 2>/dev/null | grep -qx 'clippy'; then \
+	@if rustup component list --installed 2>/dev/null | grep -q '^clippy'; then \
 		$(CARGO) clippy --all-targets $(CARGO_FLAGS) -- -D warnings; \
 	else \
 		echo "clippy component is not installed; run: rustup component add clippy"; \

@@ -17,6 +17,14 @@ fn quantile(response: StatsResponse) -> f64 {
     }
 }
 
+fn summary(response: StatsResponse) -> (f64, f64) {
+    match response {
+        StatsResponse::SampleSummary { mean, variance, .. } => (mean, variance),
+        StatsResponse::Error { reason, .. } => panic!("expected sample summary: {reason}"),
+        other => panic!("expected sample summary, got {other:?}"),
+    }
+}
+
 proptest! {
     #[test]
     fn normal_cdf_is_monotonic(
@@ -64,6 +72,27 @@ proptest! {
             }
             other => panic!("expected sample summary, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn sample_variance_is_stable_under_large_exact_translation(
+        values in proptest::collection::vec(-1000i32..1000, 2..64),
+        offset_power in 20u32..41,
+    ) {
+        prop_assume!(values.windows(2).any(|pair| pair[0] != pair[1]));
+        let offset = (1_u64 << offset_power) as f64;
+        let original: Vec<f64> = values.iter().map(|value| *value as f64).collect();
+        let translated: Vec<f64> = original.iter().map(|value| value + offset).collect();
+
+        let (mean, variance) =
+            summary(StatsRequest::DescribeSample { values: original }.evaluate());
+        let (translated_mean, translated_variance) =
+            summary(StatsRequest::DescribeSample { values: translated }.evaluate());
+
+        let mean_tolerance = offset * 4.0 * f64::EPSILON;
+        prop_assert!((translated_mean - (mean + offset)).abs() <= mean_tolerance);
+        let variance_tolerance = variance.max(1.0) * 1.0e-9;
+        prop_assert!((translated_variance - variance).abs() <= variance_tolerance);
     }
 
     #[test]

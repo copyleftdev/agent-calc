@@ -1533,6 +1533,55 @@ enum StatsOutput {
     },
 }
 
+/// Neumaier compensated summation. This preserves small terms that would
+/// otherwise be lost when values have very different magnitudes.
+fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
+    let mut sum = 0.0;
+    let mut correction = 0.0;
+    for value in values {
+        let next = sum + value;
+        if sum.abs() >= value.abs() {
+            correction += (sum - next) + value;
+        } else {
+            correction += (value - next) + sum;
+        }
+        sum = next;
+    }
+    sum + correction
+}
+
+/// Scale before summing so a finite mean remains representable even when the
+/// unscaled sum would overflow.
+fn stable_mean(values: &[f64]) -> f64 {
+    stable_mean_iter(values.iter().copied(), values.len())
+}
+
+fn stable_mean_iter(values: impl IntoIterator<Item = f64>, count: usize) -> f64 {
+    let n = count as f64;
+    compensated_sum(values.into_iter().map(|value| value / n))
+}
+
+fn centered_sum_squares(values: &[f64], mean: f64) -> f64 {
+    compensated_sum(values.iter().map(|value| {
+        let delta = value - mean;
+        delta * delta
+    }))
+}
+
+fn centered_sum_products(x: &[f64], y: &[f64], mean_x: f64, mean_y: f64) -> f64 {
+    compensated_sum(
+        x.iter()
+            .zip(y.iter())
+            .map(|(xi, yi)| (xi - mean_x) * (yi - mean_y)),
+    )
+}
+
+fn sample_mean_variance(values: &[f64]) -> (f64, f64) {
+    let mean = stable_mean(values);
+    let variance = centered_sum_squares(values, mean) / (values.len() - 1) as f64;
+    (mean, variance)
+}
+
 fn describe_sample(values: &[f64]) -> Result<SampleSummary, String> {
     if values.is_empty() {
         return Err("sample must contain at least one value".to_owned());
@@ -1541,16 +1590,14 @@ fn describe_sample(values: &[f64]) -> Result<SampleSummary, String> {
         return Err("sample values must be finite".to_owned());
     }
     let n = values.len();
-    let mean = values.iter().sum::<f64>() / n as f64;
-    let mut sum_sq = 0.0;
+    let mean = stable_mean(values);
     let mut min = values[0];
     let mut max = values[0];
     for value in values {
-        let delta = value - mean;
-        sum_sq += delta * delta;
         min = min.min(*value);
         max = max.max(*value);
     }
+    let sum_sq = centered_sum_squares(values, mean);
     let variance = if n > 1 { sum_sq / (n - 1) as f64 } else { 0.0 };
     let std_dev = variance.sqrt();
 
@@ -1598,7 +1645,7 @@ fn sample_skewness(values: &[f64], mean: f64, std_dev: f64) -> f64 {
         return 0.0;
     }
     let factor = n as f64 / ((n - 1) as f64 * (n - 2) as f64);
-    let sum: f64 = values.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum();
+    let sum = compensated_sum(values.iter().map(|v| ((v - mean) / std_dev).powi(3)));
     factor * sum
 }
 
@@ -1608,7 +1655,7 @@ fn sample_kurtosis(values: &[f64], mean: f64, std_dev: f64) -> f64 {
         return 0.0;
     }
     let factor1 = (n * (n + 1.0)) / ((n - 1.0) * (n - 2.0) * (n - 3.0));
-    let sum: f64 = values.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum();
+    let sum = compensated_sum(values.iter().map(|v| ((v - mean) / std_dev).powi(4)));
     let correction = 3.0 * (n - 1.0).powi(2) / ((n - 2.0) * (n - 3.0));
     factor1 * sum - correction
 }
@@ -1681,17 +1728,12 @@ fn correlation(x: &[f64], y: &[f64]) -> Result<(f64, usize), String> {
     if !x.iter().all(|v| v.is_finite()) || !y.iter().all(|v| v.is_finite()) {
         return Err("x and y values must be finite".to_owned());
     }
-    let mean_x = x.iter().sum::<f64>() / n as f64;
-    let mean_y = y.iter().sum::<f64>() / n as f64;
-    let (mut num, mut denom_x, mut denom_y) = (0.0f64, 0.0f64, 0.0f64);
-    for (xi, yi) in x.iter().zip(y.iter()) {
-        let dx = xi - mean_x;
-        let dy = yi - mean_y;
-        num += dx * dy;
-        denom_x += dx * dx;
-        denom_y += dy * dy;
-    }
-    let denom = (denom_x * denom_y).sqrt();
+    let mean_x = stable_mean(x);
+    let mean_y = stable_mean(y);
+    let num = centered_sum_products(x, y, mean_x, mean_y);
+    let denom_x = centered_sum_squares(x, mean_x);
+    let denom_y = centered_sum_squares(y, mean_y);
+    let denom = denom_x.sqrt() * denom_y.sqrt();
     if denom == 0.0 {
         return Err(
             "correlation is undefined when all values in a series are identical".to_owned(),
@@ -1701,15 +1743,11 @@ fn correlation(x: &[f64], y: &[f64]) -> Result<(f64, usize), String> {
 }
 
 fn linear_regression(x: &[f64], y: &[f64]) -> Result<(f64, f64, f64), String> {
-    let (pearson_r, n) = correlation(x, y)?;
-    let mean_x = x.iter().sum::<f64>() / n as f64;
-    let mean_y = y.iter().sum::<f64>() / n as f64;
-    let denom_x: f64 = x.iter().map(|xi| (xi - mean_x).powi(2)).sum();
-    let num: f64 = x
-        .iter()
-        .zip(y.iter())
-        .map(|(xi, yi)| (xi - mean_x) * (yi - mean_y))
-        .sum();
+    let (pearson_r, _) = correlation(x, y)?;
+    let mean_x = stable_mean(x);
+    let mean_y = stable_mean(y);
+    let denom_x = centered_sum_squares(x, mean_x);
+    let num = centered_sum_products(x, y, mean_x, mean_y);
     let slope = num / denom_x;
     let intercept = mean_y - slope * mean_x;
     let r_squared = pearson_r * pearson_r;
@@ -1796,9 +1834,9 @@ fn multiple_linear_regression(
 
     // Residuals and fit statistics
     let residuals = &y_vec - &design * &beta;
-    let ss_res: f64 = residuals.iter().map(|r| r * r).sum();
-    let y_mean = y.iter().sum::<f64>() / n as f64;
-    let ss_tot: f64 = y.iter().map(|yi| (yi - y_mean).powi(2)).sum();
+    let ss_res = compensated_sum(residuals.iter().map(|r| r * r));
+    let y_mean = stable_mean(y);
+    let ss_tot = centered_sum_squares(y, y_mean);
     let r_squared = if ss_tot == 0.0 {
         1.0
     } else {
@@ -1931,8 +1969,7 @@ fn one_sample_t_test(
     }
     ensure_finite(mu0, "mu0")?;
     let n = sample.len();
-    let mean = sample.iter().sum::<f64>() / n as f64;
-    let var: f64 = sample.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let (mean, var) = sample_mean_variance(sample);
     let s = var.sqrt();
     if s == 0.0 {
         return Err("sample has zero variance — t-test is undefined".to_owned());
@@ -1973,10 +2010,8 @@ fn two_sample_t_test(
     }
     let n1 = sample1.len() as f64;
     let n2 = sample2.len() as f64;
-    let mean1 = sample1.iter().sum::<f64>() / n1;
-    let mean2 = sample2.iter().sum::<f64>() / n2;
-    let var1: f64 = sample1.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0);
-    let var2: f64 = sample2.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0);
+    let (mean1, var1) = sample_mean_variance(sample1);
+    let (mean2, var2) = sample_mean_variance(sample2);
 
     let (t_stat, dof) = if equal_var {
         let sp2 = ((n1 - 1.0) * var1 + (n2 - 1.0) * var2) / (n1 + n2 - 2.0);
@@ -2068,16 +2103,21 @@ fn one_way_anova_test(groups: &[Vec<f64>], alpha: f64) -> Result<StatsOutput, St
         }
     }
     let n_total: usize = groups.iter().map(|g| g.len()).sum();
-    let grand_mean: f64 = groups.iter().flat_map(|g| g.iter()).sum::<f64>() / n_total as f64;
-
-    let mut ss_between = 0.0f64;
-    let mut ss_within = 0.0f64;
-    for g in groups {
-        let n_k = g.len() as f64;
-        let mean_k = g.iter().sum::<f64>() / n_k;
-        ss_between += n_k * (mean_k - grand_mean).powi(2);
-        ss_within += g.iter().map(|x| (x - mean_k).powi(2)).sum::<f64>();
-    }
+    let grand_mean = stable_mean_iter(groups.iter().flatten().copied(), n_total);
+    let group_moments: Vec<(f64, f64)> = groups
+        .iter()
+        .map(|group| {
+            let mean = stable_mean(group);
+            (mean, centered_sum_squares(group, mean))
+        })
+        .collect();
+    let ss_between = compensated_sum(
+        groups
+            .iter()
+            .zip(group_moments.iter())
+            .map(|(group, (mean, _))| group.len() as f64 * (mean - grand_mean).powi(2)),
+    );
+    let ss_within = compensated_sum(group_moments.iter().map(|(_, sum_sq)| *sum_sq));
 
     let df_between = (groups.len() - 1) as f64;
     let df_within = (n_total - groups.len()) as f64;
@@ -2125,7 +2165,7 @@ fn sma(values: &[f64], period: usize) -> Result<Vec<f64>, String> {
         ));
     }
     let result = (0..=n - period)
-        .map(|i| values[i..i + period].iter().sum::<f64>() / period as f64)
+        .map(|i| stable_mean(&values[i..i + period]))
         .collect();
     Ok(result)
 }
@@ -2147,8 +2187,8 @@ fn ema(values: &[f64], smoothing: f64) -> Result<Vec<f64>, String> {
 fn autocorrelation(values: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
     ts_validate(values)?;
     let n = values.len();
-    let mean = values.iter().sum::<f64>() / n as f64;
-    let denom: f64 = values.iter().map(|x| (x - mean).powi(2)).sum();
+    let mean = stable_mean(values);
+    let denom = centered_sum_squares(values, mean);
     if denom == 0.0 {
         return Err("values have zero variance — autocorrelation is undefined".to_owned());
     }
@@ -2158,9 +2198,9 @@ fn autocorrelation(values: &[f64], max_lag: usize) -> Result<Vec<f64>, String> {
             if k == 0 {
                 1.0
             } else {
-                let num: f64 = (0..n - k)
-                    .map(|i| (values[i] - mean) * (values[i + k] - mean))
-                    .sum();
+                let num = compensated_sum(
+                    (0..n - k).map(|i| (values[i] - mean) * (values[i + k] - mean)),
+                );
                 num / denom
             }
         })
@@ -2574,10 +2614,8 @@ fn cohen_d_two_sample(sample1: &[f64], sample2: &[f64]) -> Result<f64, String> {
     }
     let n1 = sample1.len() as f64;
     let n2 = sample2.len() as f64;
-    let mean1 = sample1.iter().sum::<f64>() / n1;
-    let mean2 = sample2.iter().sum::<f64>() / n2;
-    let var1: f64 = sample1.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0);
-    let var2: f64 = sample2.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0);
+    let (mean1, var1) = sample_mean_variance(sample1);
+    let (mean2, var2) = sample_mean_variance(sample2);
     let sp = (((n1 - 1.0) * var1 + (n2 - 1.0) * var2) / (n1 + n2 - 2.0)).sqrt();
     if sp == 0.0 {
         return Err("pooled standard deviation is zero — Cohen's d is undefined".to_owned());
@@ -2593,9 +2631,7 @@ fn cohen_d_one_sample(sample: &[f64], mu0: f64) -> Result<f64, String> {
         return Err("sample values must be finite".to_owned());
     }
     ensure_finite(mu0, "mu0")?;
-    let n = sample.len() as f64;
-    let mean = sample.iter().sum::<f64>() / n;
-    let var: f64 = sample.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    let (mean, var) = sample_mean_variance(sample);
     let s = var.sqrt();
     if s == 0.0 {
         return Err("sample standard deviation is zero — Cohen's d is undefined".to_owned());
@@ -2615,21 +2651,18 @@ fn eta_squared(groups: &[Vec<f64>]) -> Result<f64, String> {
             return Err(format!("group {i} values must be finite"));
         }
     }
-    let n_total: usize = groups.iter().map(|g| g.len()).sum();
-    let grand_mean: f64 = groups.iter().flat_map(|g| g.iter()).sum::<f64>() / n_total as f64;
-    let ss_between: f64 = groups
-        .iter()
-        .map(|g| {
-            let n_k = g.len() as f64;
-            let mean_k = g.iter().sum::<f64>() / n_k;
-            n_k * (mean_k - grand_mean).powi(2)
-        })
-        .sum();
-    let ss_total: f64 = groups
-        .iter()
-        .flat_map(|g| g.iter())
-        .map(|x| (x - grand_mean).powi(2))
-        .sum();
+    let n_total: usize = groups.iter().map(|group| group.len()).sum();
+    let grand_mean = stable_mean_iter(groups.iter().flatten().copied(), n_total);
+    let ss_between = compensated_sum(groups.iter().map(|group| {
+        let mean = stable_mean(group);
+        group.len() as f64 * (mean - grand_mean).powi(2)
+    }));
+    let ss_total = compensated_sum(
+        groups
+            .iter()
+            .flatten()
+            .map(|value| (value - grand_mean).powi(2)),
+    );
     if ss_total == 0.0 {
         return Err("total variance is zero — eta-squared is undefined".to_owned());
     }
@@ -2653,27 +2686,23 @@ fn cramers_v(observed: &[Vec<f64>]) -> Result<f64, String> {
             return Err(format!("row {i} values must be finite and non-negative"));
         }
     }
-    let n: f64 = observed.iter().flat_map(|row| row.iter()).sum();
+    let n = compensated_sum(observed.iter().flatten().copied());
     if n == 0.0 {
         return Err("observed table sum is zero".to_owned());
     }
-    let row_sums: Vec<f64> = observed.iter().map(|row| row.iter().sum()).collect();
-    let col_sums: Vec<f64> = (0..c)
-        .map(|j| observed.iter().map(|row| row[j]).sum())
-        .collect();
-    let chi2: f64 = observed
+    let row_sums: Vec<f64> = observed
         .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            row.iter()
-                .enumerate()
-                .map(|(j, &o)| {
-                    let e = row_sums[i] * col_sums[j] / n;
-                    if e == 0.0 { 0.0 } else { (o - e).powi(2) / e }
-                })
-                .sum::<f64>()
-        })
-        .sum();
+        .map(|row| compensated_sum(row.iter().copied()))
+        .collect();
+    let col_sums: Vec<f64> = (0..c)
+        .map(|j| compensated_sum(observed.iter().map(|row| row[j])))
+        .collect();
+    let chi2 = compensated_sum(observed.iter().enumerate().map(|(i, row)| {
+        compensated_sum(row.iter().enumerate().map(|(j, &o)| {
+            let e = row_sums[i] * col_sums[j] / n;
+            if e == 0.0 { 0.0 } else { (o - e).powi(2) / e }
+        }))
+    }));
     let k = r.min(c) as f64;
     Ok((chi2 / (n * (k - 1.0))).sqrt())
 }
@@ -2771,6 +2800,18 @@ fn interpret_r(r: f64) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compensated_sum_preserves_a_small_term_before_cancellation() {
+        let sum = compensated_sum([1.0e-16, 1.0, -1.0]);
+        assert_eq!(sum, 1.0e-16);
+    }
+
+    #[test]
+    fn centered_cross_product_subtracts_both_means() {
+        let product = centered_sum_products(&[2.0], &[3.0], 1.0, 1.0);
+        assert_eq!(product, 2.0);
+    }
 
     fn probability(response: StatsResponse) -> f64 {
         match response {
@@ -3989,17 +4030,17 @@ mod tests {
                 assert_eq!(k, 6);
                 // R² and residual std dev
                 let r2_rel = (r_squared - cert_r2).abs() / cert_r2;
-                assert!(r2_rel < 1e-6, "R² rel err={r2_rel:.2e} got={r_squared}");
+                assert!(r2_rel < 1e-10, "R² rel err={r2_rel:.2e} got={r_squared}");
                 let rsd_rel = (residual_std_dev - cert_rsd).abs() / cert_rsd;
                 assert!(
-                    rsd_rel < 1e-6,
+                    rsd_rel < 1e-10,
                     "RSD rel err={rsd_rel:.2e} got={residual_std_dev}"
                 );
                 // All 7 coefficients
                 for (i, (got, cert)) in coefficients.iter().zip(cert_b.iter()).enumerate() {
                     let rel = (got - cert).abs() / cert.abs();
                     assert!(
-                        rel < 1e-6,
+                        rel < 3e-9,
                         "coeff[{i}] rel err={rel:.2e} got={got} cert={cert}"
                     );
                 }
@@ -4007,7 +4048,7 @@ mod tests {
                 for (i, (got, cert)) in std_errors.iter().zip(cert_se.iter()).enumerate() {
                     let rel = (got - cert).abs() / cert;
                     assert!(
-                        rel < 1e-4,
+                        rel < 1e-8,
                         "se[{i}] rel err={rel:.2e} got={got} cert={cert}"
                     );
                 }
