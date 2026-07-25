@@ -42,3 +42,15 @@ id_ed25519
 # Local automation caches
 /.cache/
 /.cargo-audit/
+
+# Oddly Exact web application
+/node_modules/
+/.next/
+/.open-next/
+/.wrangler/
+/public/wasm/
+/next-env.d.ts
+/worker-configuration.d.ts
+/tsconfig.tsbuildinfo
+/test-results/
+/playwright-report/

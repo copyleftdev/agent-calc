@@ -86,6 +86,7 @@ impl Describe {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvalRequest {
     pub expr: Expr,
     #[serde(default = "default_decimal_places")]
@@ -93,7 +94,7 @@ pub struct EvalRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Expr {
     Integer {
         value: String,

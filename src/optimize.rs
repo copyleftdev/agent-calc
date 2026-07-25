@@ -9,8 +9,11 @@ use serde_json::{Value, json};
 
 // ── public types ──────────────────────────────────────────────────────────────
 
+const MAX_OPTIMIZE_ITERATIONS: u64 = 100_000;
+const MAX_GRID_RESOLUTION: u64 = 1_000_000;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "intent", rename_all = "snake_case")]
+#[serde(tag = "intent", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OptimizeRequest {
     #[serde(rename = "minimize_1d")]
     Minimize1d {
@@ -47,7 +50,7 @@ pub enum OptimizeRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Objective {
     Quadratic { a: f64, b: f64, c: f64 },
     Polynomial { coefficients: Vec<f64> },
@@ -55,7 +58,7 @@ pub enum Objective {
 
 /// N-dimensional objective function.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NdObjective {
     /// f(x) = xᵀAx + bᵀx + c  (A is n×n, b is length-n)
     QuadraticForm {
@@ -156,6 +159,7 @@ impl OptimizeRequest {
                 if *max_iters == 0 {
                     return Err("max_iters must be greater than zero".to_owned());
                 }
+                validate_max_iters(*max_iters)?;
 
                 let problem = ObjectiveProblem {
                     objective: objective.clone(),
@@ -193,6 +197,7 @@ impl OptimizeRequest {
                 if initial.len() < 2 {
                     return Err("nelder_mead requires at least 2 dimensions".to_owned());
                 }
+                validate_max_iters(*max_iters)?;
                 objective.check_dimension(initial)?;
                 let (minimizer, minimum, iters, converged) =
                     nelder_mead_solve(objective, initial, *max_iters)?;
@@ -226,6 +231,7 @@ impl OptimizeRequest {
                 if *max_iters == 0 {
                     return Err("max_iters must be greater than zero".to_owned());
                 }
+                validate_max_iters(*max_iters)?;
                 let (minimizer, minimum, iters, converged) = gradient_descent_solve(
                     objective,
                     initial,
@@ -257,9 +263,7 @@ impl OptimizeRequest {
                 if lower >= upper {
                     return Err("lower must be less than upper".to_owned());
                 }
-                if *resolution < 2 {
-                    return Err("resolution must be at least 2".to_owned());
-                }
+                validate_grid_resolution(*resolution)?;
                 let (minimizer, minimum) = grid_search_1d(objective, *lower, *upper, *resolution);
                 if !nd_result_finite(&[minimizer], minimum) {
                     return Err("grid search returned a non-finite result".to_owned());
@@ -623,14 +627,98 @@ pub fn optimize_schema_json() -> Value {
         "$id": format!("https://agent-calc.local/schema/{CONTRACT_VERSION}/optimize.json"),
         "title": "agent-calc calc1 optimize request",
         "description": "Typed optimization: 1D Brent, n-D Nelder-Mead, gradient descent, 1D grid search.",
-        "type": "object",
-        "required": ["intent"],
-        "properties": {
-            "intent": {
-                "enum": ["minimize_1d", "nelder_mead", "gradient_descent", "grid_search"]
-            }
-        },
+        "oneOf": [
+            { "$ref": "#/$defs/Minimize1d" },
+            { "$ref": "#/$defs/NelderMead" },
+            { "$ref": "#/$defs/GradientDescent" },
+            { "$ref": "#/$defs/GridSearch" }
+        ],
         "$defs": {
+            "Minimize1d": {
+                "type": "object",
+                "required": ["intent", "objective", "lower", "upper"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "minimize_1d"},
+                    "objective": {"$ref": "#/$defs/Objective"},
+                    "lower": {"type": "number"},
+                    "upper": {"type": "number"},
+                    "max_iters": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_OPTIMIZE_ITERATIONS,
+                        "default": default_max_iters()
+                    },
+                    "abs_tolerance": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "default": default_abs_tolerance()
+                    }
+                }
+            },
+            "NelderMead": {
+                "type": "object",
+                "required": ["intent", "objective", "initial"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "nelder_mead"},
+                    "objective": {"$ref": "#/$defs/NdObjective"},
+                    "initial": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 2
+                    },
+                    "max_iters": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_OPTIMIZE_ITERATIONS,
+                        "default": default_nd_max_iters()
+                    }
+                }
+            },
+            "GradientDescent": {
+                "type": "object",
+                "required": ["intent", "objective", "initial", "learning_rate"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "gradient_descent"},
+                    "objective": {"$ref": "#/$defs/NdObjective"},
+                    "initial": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 1
+                    },
+                    "learning_rate": {"type": "number", "exclusiveMinimum": 0},
+                    "max_iters": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": MAX_OPTIMIZE_ITERATIONS,
+                        "default": default_nd_max_iters()
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "default": default_gd_tolerance()
+                    }
+                }
+            },
+            "GridSearch": {
+                "type": "object",
+                "required": ["intent", "objective", "lower", "upper"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "grid_search"},
+                    "objective": {"$ref": "#/$defs/Objective"},
+                    "lower": {"type": "number"},
+                    "upper": {"type": "number"},
+                    "resolution": {
+                        "type": "integer",
+                        "minimum": 2,
+                        "maximum": MAX_GRID_RESOLUTION,
+                        "default": default_grid_resolution()
+                    }
+                }
+            },
             "Objective": {
                 "oneOf": [
                     {
@@ -734,6 +822,24 @@ fn ensure_positive_finite(value: f64, name: &str) -> Result<(), String> {
     }
 }
 
+fn validate_max_iters(max_iters: u64) -> Result<(), String> {
+    if max_iters > MAX_OPTIMIZE_ITERATIONS {
+        Err(format!("max_iters must be <= {MAX_OPTIMIZE_ITERATIONS}"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_grid_resolution(resolution: u64) -> Result<(), String> {
+    if resolution < 2 {
+        Err("resolution must be at least 2".to_owned())
+    } else if resolution > MAX_GRID_RESOLUTION {
+        Err(format!("resolution must be <= {MAX_GRID_RESOLUTION}"))
+    } else {
+        Ok(())
+    }
+}
+
 fn default_max_iters() -> u64 {
     100
 }
@@ -783,6 +889,42 @@ impl CostFunction for ObjectiveProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_deserialization_rejects_fields_forbidden_by_schema() {
+        let unknown_request_field = r#"{
+            "intent": "grid_search",
+            "objective": {"kind": "quadratic", "a": 1, "b": 0, "c": 0},
+            "lower": -1,
+            "upper": 1,
+            "unexpected": true
+        }"#;
+        assert!(
+            serde_json::from_str::<OptimizeRequest>(unknown_request_field)
+                .unwrap_err()
+                .to_string()
+                .contains("unknown field")
+        );
+
+        let unknown_objective_field = r#"{
+            "intent": "grid_search",
+            "objective": {
+                "kind": "quadratic",
+                "a": 1,
+                "b": 0,
+                "c": 0,
+                "unexpected": true
+            },
+            "lower": -1,
+            "upper": 1
+        }"#;
+        assert!(
+            serde_json::from_str::<OptimizeRequest>(unknown_objective_field)
+                .unwrap_err()
+                .to_string()
+                .contains("unknown field")
+        );
+    }
 
     // ── minimize_1d (Brent) ───────────────────────────────────────────────────
 
@@ -1204,6 +1346,63 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn iterative_optimizers_reject_work_above_the_published_limit() {
+        let too_many = MAX_OPTIMIZE_ITERATIONS + 1;
+        assert!(validate_max_iters(MAX_OPTIMIZE_ITERATIONS).is_ok());
+
+        let minimize = OptimizeRequest::Minimize1d {
+            objective: Objective::Quadratic {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+            },
+            lower: -1.0,
+            upper: 1.0,
+            max_iters: too_many,
+            abs_tolerance: 1e-8,
+        }
+        .evaluate();
+        assert!(matches!(
+            minimize,
+            OptimizeResponse::Error {
+                code: ErrorCode::ResourceLimit,
+                reason,
+                ..
+            } if reason == format!("max_iters must be <= {MAX_OPTIMIZE_ITERATIONS}")
+        ));
+
+        let nelder_mead = OptimizeRequest::NelderMead {
+            objective: NdObjective::Rosenbrock { a: 1.0, b: 100.0 },
+            initial: vec![0.0, 0.0],
+            max_iters: too_many,
+        }
+        .evaluate();
+        assert!(matches!(
+            nelder_mead,
+            OptimizeResponse::Error {
+                code: ErrorCode::ResourceLimit,
+                ..
+            }
+        ));
+
+        let gradient_descent = OptimizeRequest::GradientDescent {
+            objective: NdObjective::Rosenbrock { a: 1.0, b: 100.0 },
+            initial: vec![0.0, 0.0],
+            learning_rate: 0.001,
+            max_iters: too_many,
+            tolerance: 1e-6,
+        }
+        .evaluate();
+        assert!(matches!(
+            gradient_descent,
+            OptimizeResponse::Error {
+                code: ErrorCode::ResourceLimit,
+                ..
+            }
+        ));
+    }
+
     // ── Grid search ───────────────────────────────────────────────────────────
 
     #[test]
@@ -1271,6 +1470,7 @@ mod tests {
 
     #[test]
     fn grid_search_rejects_invalid_inputs() {
+        assert!(validate_grid_resolution(MAX_GRID_RESOLUTION).is_ok());
         assert!(matches!(
             (OptimizeRequest::GridSearch {
                 objective: Objective::Polynomial { coefficients: vec![1.0] },
@@ -1297,6 +1497,22 @@ mod tests {
                 resolution: 100,
             }).evaluate(),
             OptimizeResponse::Error { reason, .. } if reason == "lower must be finite"
+        ));
+        assert!(matches!(
+            (OptimizeRequest::GridSearch {
+                objective: Objective::Polynomial {
+                    coefficients: vec![1.0]
+                },
+                lower: 0.0,
+                upper: 1.0,
+                resolution: MAX_GRID_RESOLUTION + 1,
+            })
+            .evaluate(),
+            OptimizeResponse::Error {
+                code: ErrorCode::ResourceLimit,
+                reason,
+                ..
+            } if reason == format!("resolution must be <= {MAX_GRID_RESOLUTION}")
         ));
     }
 

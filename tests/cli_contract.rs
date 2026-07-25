@@ -102,6 +102,14 @@ fn schema_optimize_emits_optimize_request_schema() {
         json["$defs"]["Objective"]["oneOf"][0]["properties"]["kind"]["const"],
         "quadratic"
     );
+    assert_eq!(
+        json["$defs"]["Minimize1d"]["properties"]["max_iters"]["maximum"],
+        100_000
+    );
+    assert_eq!(
+        json["$defs"]["GridSearch"]["properties"]["resolution"]["maximum"],
+        1_000_000
+    );
 }
 
 #[test]
@@ -485,6 +493,34 @@ fn eval_rejects_unbound_symbol() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["status"], "error");
     assert_eq!(json["reason"], "unbound symbol `x`");
+}
+
+#[test]
+fn eval_rejects_fields_forbidden_by_its_schema() {
+    let inputs: [&[u8]; 2] = [
+        br#"{"expr":{"kind":"integer","value":"7"},"unexpected":true}"#,
+        br#"{"expr":{"kind":"integer","value":"7","unexpected":true}}"#,
+    ];
+
+    for input in inputs {
+        let mut child = Command::new(bin())
+            .arg("eval")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.as_mut().unwrap().write_all(input).unwrap();
+
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("unknown field"),
+            "stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -2366,6 +2402,38 @@ fn optimize_rejects_bad_bounds() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["status"], "error");
     assert_eq!(json["reason"], "lower must be less than upper");
+}
+
+#[test]
+fn optimize_rejects_workloads_above_published_limits_without_running_them() {
+    let mut child = Command::new(bin())
+        .arg("optimize")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(
+            br#"{
+                "intent": "grid_search",
+                "objective": {"kind": "quadratic", "a": 1, "b": 0, "c": 0},
+                "lower": -1,
+                "upper": 1,
+                "resolution": 1000000000
+            }"#,
+        )
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "error");
+    assert_eq!(json["code"], "resource_limit");
+    assert_eq!(json["reason"], "resolution must be <= 1000000");
 }
 
 #[test]
