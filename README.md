@@ -1,10 +1,15 @@
-# agent-calc
+# Oddly Exact
 
 [![Tip my tokens](https://tokentip.to/badge/copyleftdev.svg?logo=1)](https://tokentip.to/@copyleftdev)
 
-`agent-calc` is an AI-native exact calculator and contract-first Rust CLI for
-deterministic symbolic math, exact rational arithmetic, typed JSON schemas,
-property-based testing, and mutation-tested computation workflows.
+![The Standard Deviants](assets/article/agent-calc-standard-deviants-population-1000x420-v1.png)
+
+**Exact computation for AI agents.**
+
+No guessed decimals. No hand-waving. `agent-calc` is the contract-first Rust
+CLI behind Oddly Exact: deterministic symbolic math, exact rational arithmetic,
+typed JSON schemas, property-based testing, and mutation-tested computation
+workflows.
 
 Use it when an AI agent needs a calculator that returns machine-readable
 contracts instead of prose guesses: exact evaluation, symbolic simplification,
@@ -12,23 +17,29 @@ traceable proof steps, assumptions, affine solving, calculus, inequalities,
 polynomials, intervals, finance, units, matrices, statistics, optimization,
 linear programming, and complex numbers.
 
+**Proof over vibes. Meet the Standard Deviants.**
+
+> **Compatibility:** Oddly Exact is the product name. The crate, executable,
+> schemas, and machine-readable contract remain `agent-calc`, so existing
+> commands and integrations continue to work unchanged.
+
 ## Search Hooks
 
-AI calculator, exact calculator, Rust calculator CLI, deterministic math engine,
-typed JSON math API, contract-first CLI, AI tool contract, symbolic math Rust,
-exact rational arithmetic, property-based testing, mutation testing,
-machine-readable math, schema-driven CLI, agent tool executable, calculator for
-LLMs, proof trace calculator, finance calculator CLI, matrix calculator Rust,
-statistics calculator CLI, units conversion CLI, linear programming CLI,
-complex-number calculator, polynomial solver, interval arithmetic, assumptions
-engine, affine equation solver.
+Oddly Exact, agent-calc, AI calculator, exact calculator, Rust calculator CLI,
+deterministic math engine, typed JSON math API, contract-first CLI, AI tool
+contract, symbolic math Rust, exact rational arithmetic, property-based testing,
+mutation testing, machine-readable math, schema-driven CLI, agent tool
+executable, calculator for LLMs, proof trace calculator, finance calculator CLI,
+matrix calculator Rust, statistics calculator CLI, units conversion CLI, linear
+programming CLI, complex-number calculator, polynomial solver, interval
+arithmetic, assumptions engine, affine equation solver.
 
 ## About
 
-`agent-calc` gives AI systems a bounded computation tool with stable command
-contracts. It avoids hand-wavy answers by accepting typed JSON, validating
-inputs, enforcing runtime limits, and returning typed JSON with exact results,
-stable error codes, and optional trace steps.
+Oddly Exact gives AI systems a bounded computation tool with stable command
+contracts through the `agent-calc` CLI. It avoids hand-wavy answers by accepting
+typed JSON, validating inputs, enforcing runtime limits, and returning typed
+JSON with exact results, stable error codes, and optional trace steps.
 
 The architecture follows a contract-first CLI pattern:
 

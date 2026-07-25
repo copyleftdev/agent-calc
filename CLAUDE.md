@@ -1,10 +1,11 @@
-# agent-calc — Claude Development Guide
+# Oddly Exact (`agent-calc`) — Claude Development Guide
 
 ## What this project is
 
-A contract-first Rust CLI and library for deterministic, exact computation.
-Every command reads typed JSON from stdin and writes typed JSON to stdout.
-No prose. No approximation unless flagged. No silent failures.
+Oddly Exact is a contract-first Rust CLI and library for deterministic, exact
+computation. Its stable executable and machine-contract name is `agent-calc`.
+Every command reads typed JSON from stdin and writes typed JSON to stdout. No
+prose. No approximation unless flagged. No silent failures.
 
 The design goal: an AI agent calling this tool must be able to trust every
 output field, reconstruct every step, and handle every failure with a stable

@@ -22,11 +22,11 @@ Please include:
 
 ## Security Posture
 
-`agent-calc` is designed as an AI-callable CLI with typed JSON contracts. The
-security model favors deterministic behavior, bounded inputs, stable error
-codes, exact arithmetic where possible, and explicit validation limits for
-precision, expression depth, node count, integer digit count, symbol length,
-exponent size, and binding count.
+Oddly Exact is exposed to AI callers through the `agent-calc` CLI and its typed
+JSON contracts. The security model favors deterministic behavior, bounded
+inputs, stable error codes, exact arithmetic where possible, and explicit
+validation limits for precision, expression depth, node count, integer digit
+count, symbol length, exponent size, and binding count.
 
 Repository automation should keep the following checks healthy:
 

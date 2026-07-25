@@ -425,7 +425,10 @@ fn write_json<T: serde::Serialize>(value: &T, ctx: &str) -> ExitCode {
 
 fn print_usage() {
     eprintln!(
-        "agent-calc — AI-native exact computation kernel
+        "Oddly Exact — exact computation for AI agents
+Proof over vibes.
+
+CLI: agent-calc
 
 Usage:
   agent-calc describe          emit executable contract

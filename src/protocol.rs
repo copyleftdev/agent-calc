@@ -31,7 +31,7 @@ impl Describe {
             name: "agent-calc",
             version: env!("CARGO_PKG_VERSION"),
             contract_version: CONTRACT_VERSION,
-            purpose: "AI-native exact computation kernel with typed failures",
+            purpose: "Oddly Exact: exact computation for AI agents with typed failures",
             capabilities: vec![
                 "describe-contract",
                 "emit-json-schema",

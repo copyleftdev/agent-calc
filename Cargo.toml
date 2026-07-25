@@ -2,7 +2,7 @@
 name = "agent-calc"
 version = "0.1.0"
 edition = "2024"
-description = "AI-native exact computation kernel with typed JSON contracts"
+description = "Oddly Exact: exact computation for AI agents with typed JSON contracts"
 readme = "README.md"
 repository = "https://github.com/copyleftdev/agent-calc"
 homepage = "https://github.com/copyleftdev/agent-calc"
@@ -12,8 +12,10 @@ publish = false
 exclude = [
     ".agents/**",
     ".codex/**",
-    "mutants.out/**",
-    "mutants.out.old/**",
+    "assets/agent-calc-*.png",
+    "assets/article/*master*.png",
+    "assets/article/agent-calc-dev-cover-*.png",
+    "mutants.out*/**",
     "target/**",
 ]
 
