@@ -1,9 +1,9 @@
-# Contributing to agent-calc
+# Contributing to Oddly Exact
 
 ## Development philosophy
 
-agent-calc is a contract-first CLI. Every design decision flows from three
-commitments:
+Oddly Exact is the product; `agent-calc` is its stable contract-first CLI.
+Every design decision flows from three commitments:
 
 1. **Exact-first** — represent results as exact rationals when possible.
 2. **Typed failures** — every error path returns a stable `ErrorCode`.

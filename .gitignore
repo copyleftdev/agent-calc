@@ -3,8 +3,7 @@
 **/*.rs.bk
 
 # cargo-mutants output
-/mutants.out/
-/mutants.out.old/
+/mutants.out*/
 
 # Local editor and OS metadata
 .DS_Store

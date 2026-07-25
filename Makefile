@@ -29,7 +29,7 @@ MANIFESTS := Cargo.toml Cargo.lock mutants.toml
 
 .PHONY: help
 help: ## Show available targets.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nagent-calc Makefile\n\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nOddly Exact / agent-calc Makefile\n\nUsage:\n  make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\nVariables:\n"
 	@printf "  PREFIX=%s\n" "$(PREFIX)"
 	@printf "  BINDIR=%s\n" "$(BINDIR)"
