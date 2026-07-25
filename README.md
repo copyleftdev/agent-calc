@@ -2,7 +2,7 @@
 
 [![Tip my tokens](https://tokentip.to/badge/copyleftdev.svg?logo=1)](https://tokentip.to/@copyleftdev)
 
-![The Standard Deviants](assets/article/agent-calc-standard-deviants-population-1000x420-v1.png)
+![The Reference Beam: an independent reference exposing a mathematical fault](assets/article/oddly-exact-dev-cover-reference-beam-1000x420-v2.png)
 
 **Exact computation for AI agents.**
 
@@ -17,7 +17,7 @@ traceable proof steps, assumptions, affine solving, calculus, inequalities,
 polynomials, intervals, finance, units, matrices, statistics, optimization,
 linear programming, and complex numbers.
 
-**Proof over vibes. Meet the Standard Deviants.**
+**Proof over vibes. Trust must survive challenge.**
 
 > **Compatibility:** Oddly Exact is the product name. The crate, executable,
 > schemas, and machine-readable contract remain `agent-calc`, so existing
