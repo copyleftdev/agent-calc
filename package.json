@@ -9,6 +9,7 @@
     "build": "next build",
     "build:local": "npm run wasm:build && next build",
     "build:worker": "npm run wasm:build && opennextjs-cloudflare build",
+    "build:sites-archive": "scripts/build-sites-archive.sh",
     "preview": "npm run wasm:build && opennextjs-cloudflare preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
