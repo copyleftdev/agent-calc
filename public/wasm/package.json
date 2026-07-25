@@ -1,0 +1,28 @@
+{
+  "name": "agent-calc",
+  "type": "module",
+  "description": "Oddly Exact: exact computation for AI agents with typed JSON contracts",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/copyleftdev/agent-calc"
+  },
+  "files": [
+    "agent_calc_bg.wasm",
+    "agent_calc.js",
+    "agent_calc.d.ts"
+  ],
+  "main": "agent_calc.js",
+  "homepage": "https://github.com/copyleftdev/agent-calc",
+  "types": "agent_calc.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "ai",
+    "calculator",
+    "symbolic-math",
+    "cli",
+    "contracts"
+  ]
+}
