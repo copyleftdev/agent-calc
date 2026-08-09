@@ -1,4 +1,4 @@
-use agent_calc::{Expr, FinanceRequest, FinanceResponse};
+use agent_calc::{DecimalRounding, Expr, FinanceRequest, FinanceResponse, PriceValue};
 use proptest::prelude::*;
 
 fn integer(value: i32) -> Expr {
@@ -82,5 +82,33 @@ proptest! {
         }.evaluate());
 
         prop_assert_eq!(discount, "1");
+    }
+
+    #[test]
+    fn zero_rate_dcf_price_is_sum_of_forecast_cash_flows(
+        a in -10_000i32..10_000,
+        b in -10_000i32..10_000,
+        c in -10_000i32..10_000,
+    ) {
+        let response = FinanceRequest::DiscountedCashFlow {
+            cash_flows: vec![a, b, c]
+                .into_iter()
+                .map(|value| PriceValue::Expression(integer(value)))
+                .collect(),
+            discount_rate: PriceValue::Decimal("0.00".to_owned()),
+            terminal_growth_rate: None,
+            decimal_places: 2,
+            rounding_mode: DecimalRounding::HalfEven,
+        }.evaluate();
+
+        match response {
+            FinanceResponse::PriceModel { model, .. } => {
+                prop_assert_eq!(model.price.display, (a + b + c).to_string());
+            }
+            FinanceResponse::Error { reason, .. } => {
+                prop_assert!(false, "expected price model: {reason}");
+            }
+            other => prop_assert!(false, "unexpected response: {other:?}"),
+        }
     }
 }

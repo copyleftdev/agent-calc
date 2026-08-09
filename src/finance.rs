@@ -6,11 +6,33 @@ use crate::{
     },
 };
 use num_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::{One, Signed, Zero};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::cmp::Ordering;
 
 const MAX_PERIODS: u32 = 1200;
+const MAX_PRICE_DECIMAL_DIGITS: usize = 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PriceValue {
+    /// Fixed-point decimal text, parsed directly into an exact rational.
+    Decimal(String),
+    Expression(Expr),
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecimalRounding {
+    /// Round to nearest; exact ties go to the result with an even final digit.
+    #[default]
+    HalfEven,
+    /// Round to nearest; exact ties increase the magnitude.
+    HalfAwayFromZero,
+    /// Discard digits beyond the requested decimal places.
+    TowardZero,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
@@ -63,6 +85,18 @@ pub enum FinanceRequest {
         rate: Expr,
         periods: u32,
     },
+    DiscountedCashFlow {
+        /// Forecast cash flows for periods 1 through n.
+        cash_flows: Vec<PriceValue>,
+        discount_rate: PriceValue,
+        /// Optional perpetual-growth terminal model at period n.
+        #[serde(default)]
+        terminal_growth_rate: Option<PriceValue>,
+        #[serde(default = "default_decimal_places")]
+        decimal_places: usize,
+        #[serde(default)]
+        rounding_mode: DecimalRounding,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -72,6 +106,17 @@ pub struct AmortizationRow {
     pub interest: ExactRational,
     pub principal_paid: ExactRational,
     pub balance: ExactRational,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiscountedCashFlowPrice {
+    pub forecast_present_value: ExactRational,
+    pub terminal_value: Option<ExactRational>,
+    pub terminal_present_value: Option<ExactRational>,
+    pub price: ExactRational,
+    pub decimal: String,
+    pub rounding_mode: DecimalRounding,
+    pub checks: Vec<FinanceCheck>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -98,6 +143,11 @@ pub enum FinanceResponse {
         contract_version: String,
         factors: Vec<ExactRational>,
         checks: Vec<FinanceCheck>,
+    },
+    PriceModel {
+        contract_version: String,
+        #[serde(flatten)]
+        model: Box<DiscountedCashFlowPrice>,
     },
     Error {
         contract_version: String,
@@ -176,6 +226,48 @@ impl FinanceRequest {
                     Err(reason) => error_response(reason),
                 }
             }
+            FinanceRequest::DiscountedCashFlow {
+                cash_flows,
+                discount_rate,
+                terminal_growth_rate,
+                decimal_places,
+                rounding_mode,
+            } => match evaluate_discounted_cash_flow(
+                cash_flows,
+                discount_rate,
+                terminal_growth_rate.as_ref(),
+                *decimal_places,
+            ) {
+                Ok(model) => FinanceResponse::PriceModel {
+                    contract_version: CONTRACT_VERSION.to_owned(),
+                    model: Box::new(DiscountedCashFlowPrice {
+                        forecast_present_value: exact_rational(&model.forecast_present_value),
+                        terminal_value: model.terminal_value.as_ref().map(exact_rational),
+                        terminal_present_value: model
+                            .terminal_present_value
+                            .as_ref()
+                            .map(exact_rational),
+                        price: exact_rational(&model.price),
+                        decimal: rounded_decimal_string(
+                            &model.price,
+                            *decimal_places,
+                            *rounding_mode,
+                        ),
+                        rounding_mode: *rounding_mode,
+                        checks: vec![
+                            FinanceCheck {
+                                name: "exact_rational_discounted_cash_flow".to_owned(),
+                                passed: true,
+                            },
+                            FinanceCheck {
+                                name: "one_based_forecast_periods".to_owned(),
+                                passed: true,
+                            },
+                        ],
+                    }),
+                },
+                Err(reason) => error_response(reason),
+            },
         }
     }
 
@@ -266,7 +358,8 @@ pub fn finance_schema_json() -> Value {
             {"$ref": "#/$defs/Irr"},
             {"$ref": "#/$defs/Amortize"},
             {"$ref": "#/$defs/BondPrice"},
-            {"$ref": "#/$defs/DiscountTable"}
+            {"$ref": "#/$defs/DiscountTable"},
+            {"$ref": "#/$defs/DiscountedCashFlow"}
         ],
         "$defs": {
             "Expr": defs["Expr"].clone(),
@@ -376,6 +469,46 @@ pub fn finance_schema_json() -> Value {
                     "intent": {"const": "discount_table"},
                     "rate": {"$ref": "#/$defs/Expr"},
                     "periods": {"type": "integer", "minimum": 1, "maximum": MAX_PERIODS}
+                }
+            },
+            "PriceValue": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$",
+                        "maxLength": MAX_PRICE_DECIMAL_DIGITS + 2,
+                        "description": "Exact fixed-point decimal text"
+                    },
+                    {"$ref": "#/$defs/Expr"}
+                ]
+            },
+            "DecimalRounding": {
+                "type": "string",
+                "enum": ["half_even", "half_away_from_zero", "toward_zero"],
+                "default": "half_even"
+            },
+            "DiscountedCashFlow": {
+                "type": "object",
+                "required": ["intent", "cash_flows", "discount_rate"],
+                "additionalProperties": false,
+                "properties": {
+                    "intent": {"const": "discounted_cash_flow"},
+                    "cash_flows": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": MAX_PERIODS,
+                        "items": {"$ref": "#/$defs/PriceValue"},
+                        "description": "Forecast cash flows for periods 1 through n"
+                    },
+                    "discount_rate": {"$ref": "#/$defs/PriceValue"},
+                    "terminal_growth_rate": {"$ref": "#/$defs/PriceValue"},
+                    "decimal_places": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 128,
+                        "default": 12
+                    },
+                    "rounding_mode": {"$ref": "#/$defs/DecimalRounding"}
                 }
             }
         }
@@ -610,6 +743,176 @@ fn compute_bond_price(
     coupon_pv.checked_add(&face_pv).map_err(|e| e.to_string())
 }
 
+// ── discounted cash-flow price model ────────────────────────────────────────
+
+struct DiscountedCashFlowOutput {
+    forecast_present_value: Rational,
+    terminal_value: Option<Rational>,
+    terminal_present_value: Option<Rational>,
+    price: Rational,
+}
+
+fn evaluate_discounted_cash_flow(
+    cash_flows: &[PriceValue],
+    discount_rate: &PriceValue,
+    terminal_growth_rate: Option<&PriceValue>,
+    decimal_places: usize,
+) -> Result<DiscountedCashFlowOutput, String> {
+    validate_decimal_places(decimal_places)?;
+    if cash_flows.is_empty() {
+        return Err("discounted_cash_flow requires at least one forecast cash flow".to_owned());
+    }
+    if cash_flows.len() > MAX_PERIODS as usize {
+        return Err(format!(
+            "discounted_cash_flow cash flow count must not exceed {MAX_PERIODS}"
+        ));
+    }
+
+    let discount_rate = evaluate_price_value(discount_rate, "discount_rate")?;
+    let negative_one = Rational::integer(-1);
+    if discount_rate <= negative_one {
+        return Err("discount_rate must be greater than -1".to_owned());
+    }
+
+    let exact_cash_flows = cash_flows
+        .iter()
+        .enumerate()
+        .map(|(index, value)| evaluate_price_value(value, &format!("cash_flows[{index}]")))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let one_plus_discount_rate = Rational::one()
+        .checked_add(&discount_rate)
+        .map_err(|error| error.to_string())?;
+    let mut discount_power = Rational::one();
+    let mut forecast_present_value = Rational::zero();
+    for cash_flow in &exact_cash_flows {
+        discount_power = discount_power
+            .checked_mul(&one_plus_discount_rate)
+            .map_err(|error| error.to_string())?;
+        let discounted = cash_flow
+            .checked_div(&discount_power)
+            .map_err(|error| error.to_string())?;
+        forecast_present_value = forecast_present_value
+            .checked_add(&discounted)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let (terminal_value, terminal_present_value) = match terminal_growth_rate {
+        Some(growth_rate) => {
+            let growth_rate = evaluate_price_value(growth_rate, "terminal_growth_rate")?;
+            if growth_rate <= negative_one {
+                return Err("terminal_growth_rate must be greater than -1".to_owned());
+            }
+            if growth_rate >= discount_rate {
+                return Err(
+                    "terminal_growth_rate must be less than discount_rate for a finite terminal value"
+                        .to_owned(),
+                );
+            }
+
+            let final_cash_flow = exact_cash_flows
+                .last()
+                .expect("non-empty cash flows were validated");
+            let next_period_growth = Rational::one()
+                .checked_add(&growth_rate)
+                .map_err(|error| error.to_string())?;
+            let next_period_cash_flow = final_cash_flow
+                .checked_mul(&next_period_growth)
+                .map_err(|error| error.to_string())?;
+            let capitalization_rate = discount_rate
+                .checked_sub(&growth_rate)
+                .map_err(|error| error.to_string())?;
+            let terminal_value = next_period_cash_flow
+                .checked_div(&capitalization_rate)
+                .map_err(|error| error.to_string())?;
+            let terminal_present_value = terminal_value
+                .checked_div(&discount_power)
+                .map_err(|error| error.to_string())?;
+            (Some(terminal_value), Some(terminal_present_value))
+        }
+        None => (None, None),
+    };
+
+    let price = match &terminal_present_value {
+        Some(terminal) => forecast_present_value
+            .checked_add(terminal)
+            .map_err(|error| error.to_string())?,
+        None => forecast_present_value.clone(),
+    };
+
+    Ok(DiscountedCashFlowOutput {
+        forecast_present_value,
+        terminal_value,
+        terminal_present_value,
+        price,
+    })
+}
+
+fn evaluate_price_value(value: &PriceValue, role: &str) -> Result<Rational, String> {
+    match value {
+        PriceValue::Decimal(value) => {
+            if value.len() > MAX_PRICE_DECIMAL_DIGITS + 2 {
+                return Err(format!(
+                    "{role} decimal text length must be <= {}",
+                    MAX_PRICE_DECIMAL_DIGITS + 2
+                ));
+            }
+            let digit_count = value.bytes().filter(u8::is_ascii_digit).count();
+            if digit_count > MAX_PRICE_DECIMAL_DIGITS {
+                return Err(format!(
+                    "{role} decimal digit count must be <= {MAX_PRICE_DECIMAL_DIGITS}"
+                ));
+            }
+            Rational::parse_decimal(value).map_err(|error| format!("{role}: {error}"))
+        }
+        PriceValue::Expression(expression) => {
+            validate_expr_limits(expression)?;
+            expression
+                .evaluate()
+                .map_err(|reason| format!("{role} expression error: {reason}"))
+        }
+    }
+}
+
+fn rounded_decimal_string(
+    value: &Rational,
+    decimal_places: usize,
+    rounding_mode: DecimalRounding,
+) -> String {
+    let scale = BigInt::from(10u8).pow(decimal_places as u32);
+    let scaled_numerator = value.numerator().abs() * &scale;
+    let denominator = value.denominator();
+    let mut units = &scaled_numerator / denominator;
+    let remainder = scaled_numerator % denominator;
+    let twice_remainder = &remainder * 2u8;
+
+    let increment = match rounding_mode {
+        DecimalRounding::TowardZero => false,
+        DecimalRounding::HalfAwayFromZero => twice_remainder >= *denominator,
+        DecimalRounding::HalfEven => match twice_remainder.cmp(denominator) {
+            Ordering::Greater => true,
+            Ordering::Equal => (&units % 2u8) == BigInt::one(),
+            Ordering::Less => false,
+        },
+    };
+    if increment {
+        units += 1u8;
+    }
+
+    let negative = value.is_negative() && !units.is_zero();
+    let sign = if negative { "-" } else { "" };
+    let digits = units.to_string();
+    if decimal_places == 0 {
+        return format!("{sign}{digits}");
+    }
+    if digits.len() <= decimal_places {
+        let zero_padding = "0".repeat(decimal_places - digits.len());
+        return format!("{sign}0.{zero_padding}{digits}");
+    }
+    let split = digits.len() - decimal_places;
+    format!("{sign}{}.{}", &digits[..split], &digits[split..])
+}
+
 // ── discount table ───────────────────────────────────────────────────────────
 
 fn evaluate_discount_table(rate_expr: &Expr, periods: u32) -> Result<Vec<Rational>, String> {
@@ -695,6 +998,10 @@ mod tests {
             numerator: numerator.to_string(),
             denominator: denominator.to_string(),
         }
+    }
+
+    fn decimal(value: &str) -> PriceValue {
+        PriceValue::Decimal(value.to_owned())
     }
 
     fn r(n: i64, d: i64) -> Rational {
@@ -1131,6 +1438,132 @@ mod tests {
         .evaluate();
         let ex = exact(resp);
         assert_eq!(ex.display, "1000");
+    }
+
+    // ── discounted cash-flow price model ────────────────────────────────────
+
+    #[test]
+    fn discounted_cash_flow_uses_one_based_forecast_periods() {
+        let response = FinanceRequest::DiscountedCashFlow {
+            cash_flows: vec![decimal("110.00")],
+            discount_rate: decimal("0.10"),
+            terminal_growth_rate: None,
+            decimal_places: 2,
+            rounding_mode: DecimalRounding::HalfEven,
+        }
+        .evaluate();
+
+        match response {
+            FinanceResponse::PriceModel { model, .. } => {
+                assert_eq!(model.forecast_present_value.display, "100");
+                assert_eq!(model.terminal_value, None);
+                assert_eq!(model.price.display, "100");
+                assert_eq!(model.decimal, "100.00");
+            }
+            other => panic!("expected price model response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn discounted_cash_flow_terminal_value_is_exact() {
+        let response = FinanceRequest::DiscountedCashFlow {
+            cash_flows: vec![decimal("110")],
+            discount_rate: decimal("0.10"),
+            terminal_growth_rate: Some(decimal("0.00")),
+            decimal_places: 2,
+            rounding_mode: DecimalRounding::HalfEven,
+        }
+        .evaluate();
+
+        match response {
+            FinanceResponse::PriceModel { model, .. } => {
+                assert_eq!(model.forecast_present_value.display, "100");
+                assert_eq!(model.terminal_value.unwrap().display, "1100");
+                assert_eq!(model.terminal_present_value.unwrap().display, "1000");
+                assert_eq!(model.price.display, "1100");
+                assert_eq!(model.decimal, "1100.00");
+            }
+            other => panic!("expected price model response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn discounted_cash_flow_rejects_non_finite_terminal_model() {
+        let response = FinanceRequest::DiscountedCashFlow {
+            cash_flows: vec![decimal("100")],
+            discount_rate: decimal("0.08"),
+            terminal_growth_rate: Some(decimal("0.08")),
+            decimal_places: 2,
+            rounding_mode: DecimalRounding::HalfEven,
+        }
+        .evaluate();
+
+        assert!(matches!(
+            response,
+            FinanceResponse::Error { reason, .. }
+                if reason.contains("must be less than discount_rate")
+        ));
+    }
+
+    #[test]
+    fn discounted_cash_flow_rejects_invalid_decimal_and_discount_boundary() {
+        let invalid_decimal = FinanceRequest::DiscountedCashFlow {
+            cash_flows: vec![decimal("1e3")],
+            discount_rate: decimal("0.08"),
+            terminal_growth_rate: None,
+            decimal_places: 2,
+            rounding_mode: DecimalRounding::HalfEven,
+        }
+        .evaluate();
+        assert!(matches!(
+            invalid_decimal,
+            FinanceResponse::Error { reason, .. } if reason.contains("invalid decimal")
+        ));
+
+        let invalid_rate = FinanceRequest::DiscountedCashFlow {
+            cash_flows: vec![decimal("100")],
+            discount_rate: decimal("-1.00"),
+            terminal_growth_rate: None,
+            decimal_places: 2,
+            rounding_mode: DecimalRounding::HalfEven,
+        }
+        .evaluate();
+        assert!(matches!(
+            invalid_rate,
+            FinanceResponse::Error { reason, .. } if reason == "discount_rate must be greater than -1"
+        ));
+    }
+
+    #[test]
+    fn monetary_rounding_modes_handle_positive_and_negative_ties() {
+        let positive = Rational::parse_decimal("1.005").unwrap();
+        let next_odd = Rational::parse_decimal("1.015").unwrap();
+        let negative = Rational::parse_decimal("-1.005").unwrap();
+
+        assert_eq!(
+            rounded_decimal_string(&positive, 2, DecimalRounding::HalfEven),
+            "1.00"
+        );
+        assert_eq!(
+            rounded_decimal_string(&next_odd, 2, DecimalRounding::HalfEven),
+            "1.02"
+        );
+        assert_eq!(
+            rounded_decimal_string(&negative, 2, DecimalRounding::HalfEven),
+            "-1.00"
+        );
+        assert_eq!(
+            rounded_decimal_string(&positive, 2, DecimalRounding::HalfAwayFromZero),
+            "1.01"
+        );
+        assert_eq!(
+            rounded_decimal_string(&negative, 2, DecimalRounding::HalfAwayFromZero),
+            "-1.01"
+        );
+        assert_eq!(
+            rounded_decimal_string(&next_odd, 2, DecimalRounding::TowardZero),
+            "1.01"
+        );
     }
 
     // ── discount table ───────────────────────────────────────────────────────

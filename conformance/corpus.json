@@ -1,0 +1,4980 @@
+[
+ {
+  "id": "startup:lp-hi:0",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    0,
+    900,
+    40000,
+    0,
+    400000,
+    14400,
+    6600,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 100,
+     "upper": 100
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 30
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 6,
+     "upper": 14
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      0,
+      1,
+      -15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 15
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      1,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 9
+    },
+    {
+     "coefficients": [
+      1000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      213400,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1875032
+    },
+    {
+     "coefficients": [
+      2060,
+      0,
+      0,
+      0,
+      0,
+      465600,
+      213400,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1328704
+    },
+    {
+     "coefficients": [
+      3183.6000000000004,
+      0,
+      0,
+      0,
+      0,
+      465600,
+      -6600,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -981016
+    },
+    {
+     "coefficients": [
+      4374.616000000001,
+      0,
+      0,
+      -21000,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -640846
+    },
+    {
+     "coefficients": [
+      5637.092960000002,
+      0,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 182684
+    },
+    {
+     "coefficients": [
+      6975.318537600002,
+      0,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 783624
+    },
+    {
+     "coefficients": [
+      8393.837649856003,
+      133333.33333333334,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 1373096
+    },
+    {
+     "coefficients": [
+      9897.467908847364,
+      0,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -2023000
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "startup:lp-lo:1",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    0,
+    900,
+    40000,
+    0,
+    400000,
+    14400,
+    6600,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 100,
+     "upper": 100
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 30
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 6,
+     "upper": 14
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 750000
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      0,
+      1,
+      -15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 15
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      1,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 9
+    },
+    {
+     "coefficients": [
+      1000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      213400,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1945890
+    },
+    {
+     "coefficients": [
+      2060,
+      0,
+      0,
+      0,
+      0,
+      465600,
+      213400,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1473846
+    },
+    {
+     "coefficients": [
+      3183.6000000000004,
+      0,
+      0,
+      0,
+      0,
+      465600,
+      -6600,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1203868
+    },
+    {
+     "coefficients": [
+      4374.616000000001,
+      0,
+      0,
+      -21000,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -936085
+    },
+    {
+     "coefficients": [
+      5637.092960000002,
+      0,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -188368
+    },
+    {
+     "coefficients": [
+      6975.318537600002,
+      0,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 339758
+    },
+    {
+     "coefficients": [
+      8393.837649856003,
+      133333.33333333334,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 868164
+    },
+    {
+     "coefficients": [
+      9897.467908847364,
+      0,
+      0,
+      0,
+      0,
+      -14400,
+      -6600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -2590100
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "startup:scope:2",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "1400"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "1900"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "95"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "128"
+    }
+   }
+  }
+ },
+ {
+  "id": "startup:scope:3",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "62"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "88"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "4200"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "5600"
+    }
+   }
+  }
+ },
+ {
+  "id": "startup:scope:4",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "9"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "14"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "14500"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "18500"
+    }
+   }
+  }
+ },
+ {
+  "id": "startup:scope:5",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "8"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "8"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "22000"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "34000"
+    }
+   }
+  }
+ },
+ {
+  "id": "startup:evidence:6",
+  "command": "stats",
+  "request": {
+   "intent": "describe_sample",
+   "values": [
+    3.1,
+    4.8,
+    2.6,
+    5.4,
+    3.9
+   ]
+  }
+ },
+ {
+  "id": "startup:npv:7",
+  "command": "finance",
+  "request": {
+   "intent": "net_present_value",
+   "rate": {
+    "kind": "div",
+    "left": {
+     "kind": "rational",
+     "numerator": "9",
+     "denominator": "50"
+    },
+    "right": {
+     "kind": "integer",
+     "value": "12"
+    }
+   },
+   "cash_flows": [
+    {
+     "kind": "integer",
+     "value": "-2399000"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    }
+   ],
+   "decimal_places": 2
+  }
+ },
+ {
+  "id": "sitework:lp-hi:8",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    40,
+    2500,
+    0,
+    8500,
+    4494,
+    5502,
+    4578,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 14
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 4,
+     "upper": 10
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1,
+      -7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 7
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 6
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -155598
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -25873.75
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      -5600,
+      0,
+      209506,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 16400.625
+    },
+    {
+     "coefficients": [
+      14266.666666666666,
+      0,
+      0,
+      0,
+      209506,
+      256498,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 257480
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      256498,
+      213422,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 244412.75
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      -5502,
+      213422,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 129354.5
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      -5502,
+      -4578,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -5014.5
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      -5502,
+      -4578,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -130082.5
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "sitework:lp-lo:9",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    40,
+    2500,
+    0,
+    8500,
+    4494,
+    5502,
+    4578,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075,
+    0.0075
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 14
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 4,
+     "upper": 10
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 150000
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1,
+      -7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 7
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 6
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -165629
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -52105
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      -5600,
+      0,
+      209506,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -39205
+    },
+    {
+     "coefficients": [
+      14266.666666666666,
+      0,
+      0,
+      0,
+      209506,
+      256498,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 168400
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      256498,
+      213422,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 122084.5
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      -5502,
+      213422,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -15179
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      -5502,
+      -4578,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -159026
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -4494,
+      -5502,
+      -4578,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -289510
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "sitework:scope:10",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "12400"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "13800"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "rational",
+     "numerator": "163",
+     "denominator": "20"
+    },
+    "upper": {
+     "kind": "rational",
+     "numerator": "47",
+     "denominator": "5"
+    }
+   }
+  }
+ },
+ {
+  "id": "sitework:scope:11",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "1200"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "1350"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "rational",
+     "numerator": "285",
+     "denominator": "2"
+    },
+    "upper": {
+     "kind": "rational",
+     "numerator": "647",
+     "denominator": "4"
+    }
+   }
+  }
+ },
+ {
+  "id": "sitework:scope:12",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "2850"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "3100"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "61"
+    },
+    "upper": {
+     "kind": "rational",
+     "numerator": "297",
+     "denominator": "4"
+    }
+   }
+  }
+ },
+ {
+  "id": "sitework:scope:13",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "4100"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "4600"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "rational",
+     "numerator": "119",
+     "denominator": "5"
+    },
+    "upper": {
+     "kind": "rational",
+     "numerator": "271",
+     "denominator": "10"
+    }
+   }
+  }
+ },
+ {
+  "id": "sitework:evidence:14",
+  "command": "stats",
+  "request": {
+   "intent": "describe_sample",
+   "values": [
+    18.2,
+    21.4,
+    19.7,
+    23.1,
+    17.9
+   ]
+  }
+ },
+ {
+  "id": "sitework:npv:15",
+  "command": "finance",
+  "request": {
+   "intent": "net_present_value",
+   "rate": {
+    "kind": "div",
+    "left": {
+     "kind": "rational",
+     "numerator": "11",
+     "denominator": "100"
+    },
+    "right": {
+     "kind": "integer",
+     "value": "24"
+    }
+   },
+   "cash_flows": [
+    {
+     "kind": "integer",
+     "value": "-83000"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    }
+   ],
+   "decimal_places": 2
+  }
+ },
+ {
+  "id": "film:lp-hi:16",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    250,
+    6000,
+    0,
+    45000,
+    8400,
+    4375,
+    3500.0000000000005,
+    18200,
+    4200,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 14
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 14,
+     "upper": 20
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1,
+      -7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 7
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 15
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -654504
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -725384
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      231600,
+      120625,
+      96500,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -369536
+    },
+    {
+     "coefficients": [
+      31000,
+      0,
+      -31000,
+      0,
+      231600,
+      120625,
+      96500,
+      501800,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -240688
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      501800,
+      115800,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 90120
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      -18200,
+      115800,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -300840
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      -18200,
+      -4200,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -279960
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      -18200,
+      -4200,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -250600
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "film:lp-lo:17",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    250,
+    6000,
+    0,
+    45000,
+    8400,
+    4375,
+    3500.0000000000005,
+    18200,
+    4200,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 14
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 14,
+     "upper": 20
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 120000
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1,
+      -7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 7
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 15
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -664632
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -781840
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      231600,
+      120625,
+      96500,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -585538
+    },
+    {
+     "coefficients": [
+      31000,
+      0,
+      -31000,
+      0,
+      231600,
+      120625,
+      96500,
+      501800,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -616236
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      501800,
+      115800,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -350250
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      -18200,
+      115800,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -784950
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      -18200,
+      -4200,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -815100
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      -8400,
+      -4375,
+      -3500,
+      -18200,
+      -4200,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -814900
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "film:scope:18",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "210"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "240"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "1150"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "1480"
+    }
+   }
+  }
+ },
+ {
+  "id": "film:scope:19",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "rational",
+     "numerator": "34",
+     "denominator": "5"
+    },
+    "upper": {
+     "kind": "rational",
+     "numerator": "37",
+     "denominator": "5"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "121000"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "134000"
+    }
+   }
+  }
+ },
+ {
+  "id": "film:scope:20",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "34"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "41"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "4200"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "6800"
+    }
+   }
+  }
+ },
+ {
+  "id": "film:scope:21",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "18"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "24"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "9500"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "13200"
+    }
+   }
+  }
+ },
+ {
+  "id": "film:evidence:22",
+  "command": "stats",
+  "request": {
+   "intent": "describe_sample",
+   "values": [
+    4.2,
+    3.6,
+    5.1,
+    3.9,
+    4.7
+   ]
+  }
+ },
+ {
+  "id": "film:npv:23",
+  "command": "finance",
+  "request": {
+   "intent": "net_present_value",
+   "rate": {
+    "kind": "div",
+    "left": {
+     "kind": "rational",
+     "numerator": "9",
+     "denominator": "50"
+    },
+    "right": {
+     "kind": "integer",
+     "value": "24"
+    }
+   },
+   "cash_flows": [
+    {
+     "kind": "integer",
+     "value": "-95000"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    }
+   ],
+   "decimal_places": 2
+  }
+ },
+ {
+  "id": "kitchensync:lp-hi:24",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    0,
+    0,
+    2400,
+    85000,
+    120,
+    0,
+    650000,
+    0,
+    45000,
+    20160,
+    10850.000000000002,
+    12000,
+    32400,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 100,
+     "upper": 100
+    },
+    {
+     "kind": "integer",
+     "lower": 40,
+     "upper": 130
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 30
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 60
+    },
+    {
+     "kind": "integer",
+     "lower": 8,
+     "upper": 20
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 2,
+     "upper": 12
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      -15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 15
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 11
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      -3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 9
+    },
+    {
+     "coefficients": [
+      2600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -2286190
+    },
+    {
+     "coefficients": [
+      5304,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      699840,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1354804
+    },
+    {
+     "coefficients": [
+      8116.16,
+      450,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -38000,
+      0,
+      699840,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -853633
+    },
+    {
+     "coefficients": [
+      11040.806400000001,
+      931.5,
+      0,
+      0,
+      6600,
+      0,
+      0,
+      0,
+      0,
+      699840,
+      299150,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 393954
+    },
+    {
+     "coefficients": [
+      14082.438656000002,
+      1446.705,
+      0,
+      0,
+      0,
+      -24000,
+      0,
+      0,
+      0,
+      -20160,
+      299150,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 651082
+    },
+    {
+     "coefficients": [
+      17245.736202240005,
+      1997.97435,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      468000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 1958190
+    },
+    {
+     "coefficients": [
+      20535.565650329605,
+      2587.8325545,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      468000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 2933154
+    },
+    {
+     "coefficients": [
+      23956.98827634279,
+      3218.980833315,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      468000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 3950903
+    },
+    {
+     "coefficients": [
+      27515.2678073965,
+      3894.30949164705,
+      400000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 5009188
+    },
+    {
+     "coefficients": [
+      31215.87851969236,
+      4616.911156062344,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -5953582
+    },
+    {
+     "coefficients": [
+      35064.51366048006,
+      5390.0949369867085,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      -32400,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -4915811
+    },
+    {
+     "coefficients": [
+      39067.09420689926,
+      6217.401582575778,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      -32400,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -3901900
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "kitchensync:lp-lo:25",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    0,
+    0,
+    2400,
+    85000,
+    120,
+    0,
+    650000,
+    0,
+    45000,
+    20160,
+    10850.000000000002,
+    12000,
+    32400,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.0125,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009,
+    0.009
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 100,
+     "upper": 100
+    },
+    {
+     "kind": "integer",
+     "lower": 40,
+     "upper": 130
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 30
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 60
+    },
+    {
+     "kind": "integer",
+     "lower": 8,
+     "upper": 20
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 2,
+     "upper": 12
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 1
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 2000000
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      -15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 15
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 11
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      -3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "le",
+     "rhs": 9
+    },
+    {
+     "coefficients": [
+      2600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -2422052
+    },
+    {
+     "coefficients": [
+      5304,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      699840,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1624560
+    },
+    {
+     "coefficients": [
+      8116.16,
+      450,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -38000,
+      0,
+      699840,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1274370
+    },
+    {
+     "coefficients": [
+      11040.806400000001,
+      931.5,
+      0,
+      0,
+      6600,
+      0,
+      0,
+      0,
+      0,
+      699840,
+      299150,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -190356
+    },
+    {
+     "coefficients": [
+      14082.438656000002,
+      1446.705,
+      0,
+      0,
+      0,
+      -24000,
+      0,
+      0,
+      0,
+      -20160,
+      299150,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -67020
+    },
+    {
+     "coefficients": [
+      17245.736202240005,
+      1997.97435,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      468000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 1131436
+    },
+    {
+     "coefficients": [
+      20535.565650329605,
+      2587.8325545,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      468000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 2006736
+    },
+    {
+     "coefficients": [
+      23956.98827634279,
+      3218.980833315,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      468000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 2907734
+    },
+    {
+     "coefficients": [
+      27515.2678073965,
+      3894.30949164705,
+      400000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 3827656
+    },
+    {
+     "coefficients": [
+      31215.87851969236,
+      4616.911156062344,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      507600,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -7254404
+    },
+    {
+     "coefficients": [
+      35064.51366048006,
+      5390.0949369867085,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      -32400,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -6329222
+    },
+    {
+     "coefficients": [
+      39067.09420689926,
+      6217.401582575778,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -20160,
+      -10850,
+      -12000,
+      -32400,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -5409800
+    }
+   ],
+   "max_nodes": 4000
+  }
+ },
+ {
+  "id": "kitchensync:scope:26",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "2200"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "2900"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "92"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "124"
+    }
+   }
+  }
+ },
+ {
+  "id": "kitchensync:scope:27",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "780"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "1150"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "310"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "430"
+    }
+   }
+  }
+ },
+ {
+  "id": "kitchensync:scope:28",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "900"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "1400"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "340"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "470"
+    }
+   }
+  }
+ },
+ {
+  "id": "kitchensync:scope:29",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "12"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "12"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "46000"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "61000"
+    }
+   }
+  }
+ },
+ {
+  "id": "kitchensync:scope:30",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "140"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "210"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "2600"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "3400"
+    }
+   }
+  }
+ },
+ {
+  "id": "kitchensync:scope:31",
+  "command": "interval",
+  "request": {
+   "intent": "mul",
+   "left": {
+    "lower": {
+     "kind": "integer",
+     "value": "3"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "5"
+    }
+   },
+   "right": {
+    "lower": {
+     "kind": "integer",
+     "value": "48000"
+    },
+    "upper": {
+     "kind": "integer",
+     "value": "72000"
+    }
+   }
+  }
+ },
+ {
+  "id": "kitchensync:evidence:32",
+  "command": "stats",
+  "request": {
+   "intent": "describe_sample",
+   "values": [
+    2.2,
+    3.9,
+    1.8,
+    4.4
+   ]
+  }
+ },
+ {
+  "id": "kitchensync:evidence:33",
+  "command": "stats",
+  "request": {
+   "intent": "describe_sample",
+   "values": [
+    61.2,
+    62.8,
+    60.4,
+    63.1,
+    64,
+    62.2
+   ]
+  }
+ },
+ {
+  "id": "kitchensync:evidence:34",
+  "command": "stats",
+  "request": {
+   "intent": "describe_sample",
+   "values": [
+    104,
+    109,
+    101,
+    112
+   ]
+  }
+ },
+ {
+  "id": "kitchensync:npv:35",
+  "command": "finance",
+  "request": {
+   "intent": "net_present_value",
+   "rate": {
+    "kind": "div",
+    "left": {
+     "kind": "rational",
+     "numerator": "4",
+     "denominator": "25"
+    },
+    "right": {
+     "kind": "integer",
+     "value": "12"
+    }
+   },
+   "cash_flows": [
+    {
+     "kind": "integer",
+     "value": "-3199000"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    },
+    {
+     "kind": "rational",
+     "numerator": "0",
+     "denominator": "100"
+    }
+   ],
+   "decimal_places": 2
+  }
+ },
+ {
+  "id": "edge:infeasible-continuous",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    1.0
+   ],
+   "variables": [
+    {
+     "lower": 0.0,
+     "upper": 10.0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1.0
+     ],
+     "relation": "ge",
+     "rhs": 5.0
+    },
+    {
+     "coefficients": [
+      1.0
+     ],
+     "relation": "le",
+     "rhs": 1.0
+    }
+   ],
+   "max_nodes": 1000
+  }
+ },
+ {
+  "id": "edge:infeasible-integer",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "maximize",
+   "objective": [
+    1.0,
+    1.0
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 0.0
+    },
+    {
+     "kind": "integer",
+     "lower": 0.0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1.0,
+      1.0
+     ],
+     "relation": "eq",
+     "rhs": 0.5
+    }
+   ],
+   "max_nodes": 500
+  }
+ },
+ {
+  "id": "edge:malformed-request",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [],
+   "variables": [],
+   "constraints": [],
+   "max_nodes": 1000
+  }
+ },
+ {
+  "id": "edge:setout-infeasible",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    0,
+    750,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 100,
+     "upper": 100
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 30
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -520000
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -260000
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 0
+    },
+    {
+     "coefficients": [
+      1583.3333333333335,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 260000
+    },
+    {
+     "coefficients": [
+      3293.333333333334,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 520000
+    },
+    {
+     "coefficients": [
+      5140.133333333334,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 780000
+    },
+    {
+     "coefficients": [
+      7134.677333333335,
+      83333.33333333333,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1460000
+    },
+    {
+     "coefficients": [
+      9288.784853333336,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1200000
+    },
+    {
+     "coefficients": [
+      11615.220974933338,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -940000
+    },
+    {
+     "coefficients": [
+      14127.77198626134,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -680000
+    },
+    {
+     "coefficients": [
+      16841.327078495582,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -420000
+    },
+    {
+     "coefficients": [
+      19771.966578108564,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -160000
+    }
+   ],
+   "max_nodes": 4000
+  }
+ }
+]
