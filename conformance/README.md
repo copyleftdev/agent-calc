@@ -35,17 +35,38 @@ different dependency graphs, emits float sequences that round differently in the
 last bit. It is stable — the same binary always gives the same answer — but it
 is not portable between binaries.
 
-## Why this matters more than the size of the number
+## The policy that follows from it
 
-A fifteenth decimal place is invisible in anything bento displays; every figure
-on screen is rounded to dollars or a tenth of a percent. The exposure is the
-seal. A sealed pack is a signature over a hash of the figures, and a hash does
-not have a last bit that matters less than the others. The same model sealed
-after a server solve and verified after a browser solve would produce two
-different hashes and read as tampering.
+Two tiers, because these are not the same kind of problem.
 
-So the rule this implies: a sealed artifact must be computed by one transport
-end to end, and conformance has to gate deployment rather than run occasionally.
+**MUST** — anything that changes a decision or a displayed figure. Feasible vs
+infeasible, a survivor count, a dollar. A failure blocks.
+
+**NOTE** — the last bit or two of an f64, below anything a caller can act on.
+Recorded, not blocking. Blocking on it would mean a permanently red build that
+nobody can fix and everybody learns to ignore, which is worse than one that
+reports honestly.
+
+Measured in the product rather than assumed: routing a 121-cell survival map
+through calcd instead of the browser moved 13 cells in the fifteenth significant
+figure and changed no feasibility, no survivor count, and no edge.
+
+## Why this matters less than it first appeared
+
+The first reading of this was that it threatened the seal: a sealed pack is a
+signature over a hash of the figures, and a hash has no bit that matters less
+than the others.
+
+That reading was wrong, and checking beat assuming. Verification re-hashes the
+claims carried inside the pack; it never re-solves the model. The figures travel
+with the signature. So two transports disagreeing in the fifteenth figure cannot
+make a genuine pack read as tampered — there is nothing to disagree with at
+verification time.
+
+What remains is worth stating plainly rather than dressing up: the arithmetic is
+stable within a binary and not quite portable between binaries, at a magnitude
+no caller can act on. Conformance runs so that if it ever becomes a magnitude
+somebody can act on, the build says so.
 
 Non-goals for this harness: it does not check performance, and it does not check
 that the answers are *correct* — only that they are the same everywhere. The
