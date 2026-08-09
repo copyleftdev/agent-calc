@@ -4558,5 +4558,423 @@
    ],
    "decimal_places": 2
   }
+ },
+ {
+  "id": "edge:infeasible-continuous",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    1.0
+   ],
+   "variables": [
+    {
+     "lower": 0.0,
+     "upper": 10.0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1.0
+     ],
+     "relation": "ge",
+     "rhs": 5.0
+    },
+    {
+     "coefficients": [
+      1.0
+     ],
+     "relation": "le",
+     "rhs": 1.0
+    }
+   ],
+   "max_nodes": 1000
+  }
+ },
+ {
+  "id": "edge:infeasible-integer",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "maximize",
+   "objective": [
+    1.0,
+    1.0
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 0.0
+    },
+    {
+     "kind": "integer",
+     "lower": 0.0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      1.0,
+      1.0
+     ],
+     "relation": "eq",
+     "rhs": 0.5
+    }
+   ],
+   "max_nodes": 500
+  }
+ },
+ {
+  "id": "edge:malformed-request",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [],
+   "variables": [],
+   "constraints": [],
+   "max_nodes": 1000
+  }
+ },
+ {
+  "id": "edge:setout-infeasible",
+  "command": "linear",
+  "request": {
+   "intent": "solve_lp",
+   "direction": "minimize",
+   "objective": [
+    0,
+    750,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011,
+    0.011
+   ],
+   "variables": [
+    {
+     "kind": "integer",
+     "lower": 100,
+     "upper": 100
+    },
+    {
+     "kind": "integer",
+     "lower": 0,
+     "upper": 30
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    },
+    {
+     "kind": "continuous",
+     "lower": 0,
+     "upper": 0
+    }
+   ],
+   "constraints": [
+    {
+     "coefficients": [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -520000
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -260000
+    },
+    {
+     "coefficients": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 0
+    },
+    {
+     "coefficients": [
+      1583.3333333333335,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 260000
+    },
+    {
+     "coefficients": [
+      3293.333333333334,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 520000
+    },
+    {
+     "coefficients": [
+      5140.133333333334,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": 780000
+    },
+    {
+     "coefficients": [
+      7134.677333333335,
+      83333.33333333333,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1460000
+    },
+    {
+     "coefficients": [
+      9288.784853333336,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -1200000
+    },
+    {
+     "coefficients": [
+      11615.220974933338,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -940000
+    },
+    {
+     "coefficients": [
+      14127.77198626134,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -680000
+    },
+    {
+     "coefficients": [
+      16841.327078495582,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+     ],
+     "relation": "ge",
+     "rhs": -420000
+    },
+    {
+     "coefficients": [
+      19771.966578108564,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "relation": "ge",
+     "rhs": -160000
+    }
+   ],
+   "max_nodes": 4000
+  }
  }
 ]
