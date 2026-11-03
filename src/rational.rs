@@ -29,6 +29,49 @@ impl fmt::Display for RationalError {
 
 impl std::error::Error for RationalError {}
 
+/// Tie rule for the `round` expression node.
+///
+/// Every mode except `toward_zero` rounds to the nearest integer and differs
+/// only when the value lies exactly halfway between two integers.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoundingMode {
+    /// Ties go toward positive infinity: 5/2 -> 3, -5/2 -> -2.
+    #[default]
+    HalfCeiling,
+    /// Ties increase the magnitude: 5/2 -> 3, -5/2 -> -3.
+    HalfAwayFromZero,
+    /// Ties go to the even neighbor: 5/2 -> 2, 7/2 -> 4.
+    HalfEven,
+    /// Discard the fractional part: 7/2 -> 3, -7/2 -> -3.
+    TowardZero,
+}
+
+impl RoundingMode {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Apply this rule to an `f64`, matching [`Rational::round_with`] on every
+    /// value the `f64` represents exactly.
+    pub fn round_f64(self, value: f64) -> f64 {
+        if !value.is_finite() || self == Self::TowardZero {
+            return value.trunc();
+        }
+        // `fract` is `value - value.trunc()`, which is exact in binary64,
+        // so this detects a true tie and nothing else.
+        if value.fract().abs() != 0.5 {
+            return value.round();
+        }
+        match self {
+            Self::HalfCeiling => value.ceil(),
+            Self::HalfAwayFromZero => value.round(),
+            Self::HalfEven => value.round_ties_even(),
+            Self::TowardZero => value.trunc(),
+        }
+    }
+}
+
 impl Rational {
     pub fn zero() -> Self {
         Self {
@@ -158,12 +201,38 @@ impl Rational {
         Self::integer(ceil_bigint(n, d))
     }
 
+    /// Round to the nearest integer, ties toward positive infinity
+    /// ([`RoundingMode::HalfCeiling`], the `round` node's default).
     pub fn round(&self) -> Self {
+        self.round_with(RoundingMode::HalfCeiling)
+    }
+
+    /// Round to an integer under an explicit tie rule.
+    pub fn round_with(&self, mode: RoundingMode) -> Self {
         let n = self.inner.numer();
         let d = self.inner.denom();
-        let two_n_plus_d = BigInt::from(2i32) * n + d;
-        let two_d = BigInt::from(2i32) * d;
-        Self::integer(floor_bigint(&two_n_plus_d, &two_d))
+        let below = floor_bigint(n, d);
+        if mode == RoundingMode::TowardZero {
+            return Self::integer(if n.is_negative() {
+                ceil_bigint(n, d)
+            } else {
+                below
+            });
+        }
+        // The canonical denominator is positive, so the fractional part is
+        // (n - below * d) / d in [0, 1); compare twice it with one.
+        let twice_fraction = (n - &below * d) * BigInt::from(2i32);
+        let up = match twice_fraction.cmp(d) {
+            Ordering::Less => false,
+            Ordering::Greater => true,
+            Ordering::Equal => match mode {
+                RoundingMode::HalfCeiling => true,
+                RoundingMode::HalfAwayFromZero => !n.is_negative(),
+                RoundingMode::HalfEven => !(&below % BigInt::from(2i32)).is_zero(),
+                RoundingMode::TowardZero => false,
+            },
+        };
+        Self::integer(if up { below + BigInt::one() } else { below })
     }
 
     pub fn to_f64(&self) -> f64 {

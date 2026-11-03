@@ -168,3 +168,78 @@ proptest! {
         }
     }
 }
+
+// --- round: exact and approximate paths apply the same tie rule ---
+
+use agent_calc::RoundingMode;
+
+fn round_node(value: Expr, mode: RoundingMode) -> Expr {
+    Expr::Round {
+        value: Box::new(value),
+        mode,
+    }
+}
+
+/// `value + 0 * sqrt(2)`: the same number, forced onto the f64 path.
+fn via_f64(value: Expr) -> Expr {
+    Expr::Add {
+        left: Box::new(value),
+        right: Box::new(Expr::Mul {
+            left: Box::new(integer(0)),
+            right: Box::new(Expr::Sqrt {
+                value: Box::new(integer(2)),
+            }),
+        }),
+    }
+}
+
+fn any_mode() -> impl Strategy<Value = RoundingMode> {
+    proptest::sample::select(vec![
+        RoundingMode::HalfCeiling,
+        RoundingMode::HalfAwayFromZero,
+        RoundingMode::HalfEven,
+        RoundingMode::TowardZero,
+    ])
+}
+
+proptest! {
+    #[test]
+    fn round_exact_and_f64_paths_agree(
+        n in -1_000_000i32..=1_000_000,
+        d in 1i32..=1000,
+        mode in any_mode(),
+    ) {
+        let exact = eval_exact_int(round_node(rational(n, d), mode));
+        let approx = eval_approx(round_node(via_f64(rational(n, d)), mode));
+        prop_assert_eq!(approx, exact as f64, "round({}/{}) under {:?}", n, d, mode);
+    }
+
+    #[test]
+    fn round_exact_and_f64_paths_agree_on_ties(
+        k in -1_000_000i32..=1_000_000,
+        mode in any_mode(),
+    ) {
+        let tie = rational(2 * k + 1, 2);
+        let exact = eval_exact_int(round_node(tie.clone(), mode));
+        let approx = eval_approx(round_node(via_f64(tie), mode));
+        prop_assert_eq!(approx, exact as f64, "round({}/2) under {:?}", 2 * k + 1, mode);
+    }
+
+    #[test]
+    fn round_is_within_one_half_of_its_input(n in -1000i32..=1000, d in 1i32..=1000) {
+        let value = n as f64 / d as f64;
+        let rounded = eval_exact_int(round_node(rational(n, d), RoundingMode::default()));
+        prop_assert!((rounded as f64 - value).abs() <= 0.5 + 1e-12,
+            "round({n}/{d}) = {rounded}");
+    }
+
+    #[test]
+    fn round_mode_survives_json_round_trip(n in -1000i32..=1000, d in 1i32..=1000, mode in any_mode()) {
+        let expr = round_node(rational(n, d), mode);
+        let json = serde_json::to_value(&expr).unwrap();
+        // The default mode is omitted, so existing callers see unchanged ASTs.
+        prop_assert_eq!(json.get("mode").is_none(), mode == RoundingMode::default());
+        let back: Expr = serde_json::from_value(json).unwrap();
+        prop_assert_eq!(back, expr);
+    }
+}

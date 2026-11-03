@@ -189,7 +189,7 @@ fn contains_symbol(expr: &Expr, variable: &str) -> bool {
         | Expr::Abs { value }
         | Expr::Floor { value }
         | Expr::Ceil { value }
-        | Expr::Round { value } => contains_symbol(value, variable),
+        | Expr::Round { value, .. } => contains_symbol(value, variable),
         Expr::Log { base, value } => {
             contains_symbol(base, variable) || contains_symbol(value, variable)
         }

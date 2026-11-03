@@ -235,7 +235,7 @@ fn eval_with_trace(expr: &Expr, trace: &mut TraceBuilder) -> Result<Rational, St
         Expr::Abs { value } => Ok(eval_with_trace(value, trace)?.abs()),
         Expr::Floor { value } => Ok(eval_with_trace(value, trace)?.floor()),
         Expr::Ceil { value } => Ok(eval_with_trace(value, trace)?.ceil()),
-        Expr::Round { value } => Ok(eval_with_trace(value, trace)?.round()),
+        Expr::Round { value, mode } => Ok(eval_with_trace(value, trace)?.round_with(*mode)),
         Expr::Max { left, right } => {
             let l = eval_with_trace(left, trace)?;
             let r = eval_with_trace(right, trace)?;
@@ -413,9 +413,12 @@ fn simplify_with_trace(expr: &Expr, trace: &mut TraceBuilder) -> Result<Expr, St
             let out = Expr::Ceil { value: Box::new(v) };
             Ok((out.clone(), simplify_rule(expr, &out)))
         }
-        Expr::Round { value } => {
+        Expr::Round { value, mode } => {
             let v = simplify_with_trace(value, trace)?;
-            let out = Expr::Round { value: Box::new(v) };
+            let out = Expr::Round {
+                value: Box::new(v),
+                mode: *mode,
+            };
             Ok((out.clone(), simplify_rule(expr, &out)))
         }
         Expr::Log { base, value } => {
@@ -944,6 +947,56 @@ mod tests {
         for (input, expected_rule) in cases {
             let rules = trace_rules(TraceRequest::Simplify { expr: input }.evaluate());
             assert_eq!(rules.last().unwrap(), expected_rule);
+        }
+    }
+
+    fn round_node(value: Expr, mode: crate::RoundingMode) -> Expr {
+        Expr::Round {
+            value: Box::new(value),
+            mode,
+        }
+    }
+
+    #[test]
+    fn traced_eval_round_applies_each_tie_mode() {
+        use crate::RoundingMode::{HalfAwayFromZero, HalfCeiling, HalfEven, TowardZero};
+        // (mode, round(5/2), round(-5/2), round(7/2)): every pair of modes
+        // differs in at least one column, so dropping the mode always fails.
+        let table = [
+            (HalfCeiling, "3", "-2", "4"),
+            (HalfAwayFromZero, "3", "-3", "4"),
+            (HalfEven, "2", "-2", "4"),
+            (TowardZero, "2", "-2", "3"),
+        ];
+        for (mode, five_halves, minus_five_halves, seven_halves) in table {
+            for (n, expected) in [(5, five_halves), (-5, minus_five_halves), (7, seven_halves)] {
+                let request = TraceRequest::Eval {
+                    expr: round_node(rational(n, 2), mode),
+                    decimal_places: 0,
+                };
+                match request.evaluate() {
+                    TraceResponse::Evaluated { exact, .. } => {
+                        assert_eq!(exact.display, expected, "round({n}/2) under {mode:?}")
+                    }
+                    other => panic!("expected evaluated trace, got {other:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn traced_simplify_round_preserves_each_mode() {
+        use crate::RoundingMode::{HalfAwayFromZero, HalfCeiling, HalfEven, TowardZero};
+        for mode in [HalfCeiling, HalfAwayFromZero, HalfEven, TowardZero] {
+            let request = TraceRequest::Simplify {
+                expr: round_node(symbol("x"), mode),
+            };
+            match request.evaluate() {
+                TraceResponse::Simplified { expr, .. } => {
+                    assert_eq!(expr, round_node(symbol("x"), mode))
+                }
+                other => panic!("expected simplified trace, got {other:?}"),
+            }
         }
     }
 }
