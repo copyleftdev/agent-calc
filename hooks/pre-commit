@@ -59,11 +59,17 @@ step "cargo package" \
     cargo package --allow-dirty --locked --offline --quiet
 
 # --- 6. Contract smoke checks -------------------------------------------------
-# Build the debug binary if needed (reuse what test already built)
-BIN="${ROOT}/target/debug/agent-calc"
+# Ask cargo where it builds: CARGO_TARGET_DIR or build.target-dir may move the
+# target directory away from ${ROOT}/target. Always build: after `cargo test`
+# this is a no-op, and it guarantees the smoke checks never run a stale binary.
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')"
+BIN="${TARGET_DIR}/debug/agent-calc"
+info "building debug binary for smoke checks..."
+cargo build --quiet
 if [ ! -x "$BIN" ]; then
-    info "building debug binary for smoke checks..."
-    cargo build --quiet
+    fail "smoke: debug binary not found at ${BIN}"
+    exit 1
 fi
 
 smoke_check() {
