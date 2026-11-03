@@ -1,4 +1,4 @@
-use crate::{CONTRACT_VERSION, Rational};
+use crate::{CONTRACT_VERSION, Rational, RoundingMode};
 use num_bigint::BigInt;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
@@ -77,6 +77,7 @@ impl Describe {
                 "bounded-optimization: optimizer inputs are validated before calling argmin",
                 "solver-backed: linear programs are modeled through good_lp and solved by microlp",
                 "complex-safe: complex inputs are validated before calling num-complex",
+                "round-consistent: exact and approximate evaluation of round apply the same tie rule",
                 "typed-failures: unsupported or invalid computation returns an error status",
                 "bounded-inputs: request handlers enforce expression size and decimal precision limits",
                 "no-prose-contract: machine consumers use JSON schema and command output",
@@ -157,6 +158,8 @@ pub enum Expr {
     },
     Round {
         value: Box<Expr>,
+        #[serde(default, skip_serializing_if = "RoundingMode::is_default")]
+        mode: RoundingMode,
     },
     Log {
         base: Box<Expr>,
@@ -448,9 +451,9 @@ impl Expr {
                 EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.ceil())),
                 EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.ceil())),
             },
-            Expr::Round { value } => match value.evaluate_output()? {
-                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.round())),
-                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(f.round())),
+            Expr::Round { value, mode } => match value.evaluate_output()? {
+                EvalOutput::Exact(r) => Ok(EvalOutput::Exact(r.round_with(*mode))),
+                EvalOutput::Approx(f) => Ok(EvalOutput::Approx(mode.round_f64(f))),
             },
             Expr::Max { left, right } => {
                 let l = left.evaluate_output()?;
@@ -753,8 +756,9 @@ impl Expr {
             Expr::Ceil { value } => Ok(Expr::Ceil {
                 value: Box::new(value.simplify()?),
             }),
-            Expr::Round { value } => Ok(Expr::Round {
+            Expr::Round { value, mode } => Ok(Expr::Round {
                 value: Box::new(value.simplify()?),
+                mode: *mode,
             }),
             Expr::Log { base, value } => Ok(Expr::Log {
                 base: Box::new(base.simplify()?),
@@ -838,8 +842,9 @@ impl Expr {
             Expr::Ceil { value } => Ok(Expr::Ceil {
                 value: Box::new(value.substitute(bindings)?),
             }),
-            Expr::Round { value } => Ok(Expr::Round {
+            Expr::Round { value, mode } => Ok(Expr::Round {
                 value: Box::new(value.substitute(bindings)?),
+                mode: *mode,
             }),
             Expr::Log { base, value } => Ok(Expr::Log {
                 base: Box::new(base.substitute(bindings)?),
@@ -1100,7 +1105,20 @@ pub fn schema_json() -> Value {
             "Abs":  unary_value_def("abs"),
             "Floor": unary_value_def("floor"),
             "Ceil":  unary_value_def("ceil"),
-            "Round": unary_value_def("round"),
+            "Round": {
+                "type": "object",
+                "required": ["kind", "value"],
+                "additionalProperties": false,
+                "properties": {
+                    "kind": { "const": "round" },
+                    "value": { "$ref": "#/$defs/Expr" },
+                    "mode": {
+                        "enum": ["half_ceiling", "half_away_from_zero", "half_even", "toward_zero"],
+                        "default": "half_ceiling",
+                        "description": "Tie rule. half_ceiling: ties toward +infinity (-5/2 -> -2). half_away_from_zero: ties increase magnitude (-5/2 -> -3). half_even: ties to the even neighbor (5/2 -> 2). toward_zero: truncate. Exact and approximate evaluation apply the same rule."
+                    }
+                }
+            },
             "Log": {
                 "type": "object",
                 "required": ["kind", "base", "value"],
@@ -1208,7 +1226,7 @@ fn validate_expr_limits_inner(expr: &Expr, depth: usize, nodes: &mut usize) -> R
         | Expr::Abs { value }
         | Expr::Floor { value }
         | Expr::Ceil { value }
-        | Expr::Round { value } => validate_expr_limits_inner(value, depth + 1, nodes),
+        | Expr::Round { value, .. } => validate_expr_limits_inner(value, depth + 1, nodes),
         Expr::Log { base, value }
         | Expr::Max {
             left: base,

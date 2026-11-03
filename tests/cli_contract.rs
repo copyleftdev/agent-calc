@@ -3366,3 +3366,152 @@ fn number_reads_stdin_and_rejects_zero_modulus() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["status"], "error");
 }
+
+// --- round tie rule: explicit mode, exact and approximate paths agree ---
+
+fn eval_round_run(input: serde_json::Value) -> (Option<i32>, Vec<u8>) {
+    let mut child = Command::new(bin())
+        .arg("eval")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    (output.status.code(), output.stdout)
+}
+
+fn minus_five_halves() -> serde_json::Value {
+    serde_json::json!({ "kind": "rational", "numerator": "-5", "denominator": "2" })
+}
+
+/// `-5/2 + 0 * sqrt(2)`: the same value, evaluated on the f64 path.
+fn minus_five_halves_via_f64() -> serde_json::Value {
+    serde_json::json!({
+        "kind": "add",
+        "left": minus_five_halves(),
+        "right": {
+            "kind": "mul",
+            "left": { "kind": "integer", "value": "0" },
+            "right": { "kind": "sqrt", "value": { "kind": "integer", "value": "2" } }
+        }
+    })
+}
+
+#[test]
+fn schema_round_declares_mode_enum_and_default() {
+    let output = Command::new(bin()).arg("schema").output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mode = &json["$defs"]["Round"]["properties"]["mode"];
+    assert_eq!(
+        mode["enum"],
+        serde_json::json!([
+            "half_ceiling",
+            "half_away_from_zero",
+            "half_even",
+            "toward_zero"
+        ])
+    );
+    assert_eq!(mode["default"], "half_ceiling");
+    assert_eq!(
+        json["$defs"]["Round"]["required"],
+        serde_json::json!(["kind", "value"])
+    );
+}
+
+#[test]
+fn describe_declares_round_consistency_invariant() {
+    let output = Command::new(bin()).arg("describe").output().unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        json["invariants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap().starts_with("round-consistent:"))
+    );
+}
+
+#[test]
+fn round_default_mode_is_unchanged_on_exact_path() {
+    let (code, stdout) = eval_round_run(serde_json::json!({
+        "expr": { "kind": "round", "value": minus_five_halves() }
+    }));
+    assert_eq!(code, Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(json["status"], "solved");
+    assert_eq!(json["exact"]["display"], "-2");
+}
+
+#[test]
+fn round_default_mode_f64_path_matches_exact_path() {
+    // Regression: the f64 path used f64::round (ties away from zero) and
+    // returned -3 here while the exact path returned -2 for the same value.
+    let (code, stdout) = eval_round_run(serde_json::json!({
+        "expr": { "kind": "round", "value": minus_five_halves_via_f64() }
+    }));
+    assert_eq!(code, Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(json["status"], "approximate");
+    assert_eq!(json["exactness"], "approximate_f64");
+    assert_eq!(json["value"].as_f64().unwrap(), -2.0);
+}
+
+#[test]
+fn round_half_away_from_zero_golden_case() {
+    for value in [minus_five_halves(), minus_five_halves_via_f64()] {
+        let (code, stdout) = eval_round_run(serde_json::json!({
+            "expr": { "kind": "round", "value": value, "mode": "half_away_from_zero" }
+        }));
+        assert_eq!(code, Some(0));
+        let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        let result = match json["status"].as_str().unwrap() {
+            "solved" => json["exact"]["display"].as_str().unwrap().to_owned(),
+            _ => format!("{}", json["value"].as_f64().unwrap()),
+        };
+        assert_eq!(result, "-3");
+    }
+}
+
+#[test]
+fn round_half_even_golden_case() {
+    let (code, stdout) = eval_round_run(serde_json::json!({
+        "expr": {
+            "kind": "round",
+            "value": { "kind": "rational", "numerator": "5", "denominator": "2" },
+            "mode": "half_even"
+        }
+    }));
+    assert_eq!(code, Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(json["exact"]["display"], "2");
+}
+
+#[test]
+fn round_unknown_mode_exits_2() {
+    let (code, _) = eval_round_run(serde_json::json!({
+        "expr": { "kind": "round", "value": minus_five_halves(), "mode": "banker" }
+    }));
+    assert_eq!(code, Some(2));
+}
+
+#[test]
+fn simplify_preserves_round_mode() {
+    let json = simplify_run(
+        serde_json::json!({
+            "expr": { "kind": "round", "value": { "kind": "symbol", "name": "x" }, "mode": "half_even" }
+        })
+        .to_string()
+        .as_bytes(),
+    );
+    assert_eq!(json["expr"]["kind"], "round");
+    assert_eq!(json["expr"]["mode"], "half_even");
+}

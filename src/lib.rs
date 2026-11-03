@@ -40,7 +40,7 @@ pub use protocol::{
     SimplifyResponse, SubstituteRequest, SubstituteResponse, classify_error, schema_json,
     simplify_schema_json, substitute_schema_json, validate_decimal_places, validate_expr_limits,
 };
-pub use rational::Rational;
+pub use rational::{Rational, RoundingMode};
 pub use solve::{EquationInput, SolveRequest, SolveResponse, solve_schema_json};
 pub use stats::{
     DistributionKind, DistributionQuery, StatsRequest, StatsResponse, Tail, stats_schema_json,

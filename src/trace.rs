@@ -235,7 +235,7 @@ fn eval_with_trace(expr: &Expr, trace: &mut TraceBuilder) -> Result<Rational, St
         Expr::Abs { value } => Ok(eval_with_trace(value, trace)?.abs()),
         Expr::Floor { value } => Ok(eval_with_trace(value, trace)?.floor()),
         Expr::Ceil { value } => Ok(eval_with_trace(value, trace)?.ceil()),
-        Expr::Round { value } => Ok(eval_with_trace(value, trace)?.round()),
+        Expr::Round { value, mode } => Ok(eval_with_trace(value, trace)?.round_with(*mode)),
         Expr::Max { left, right } => {
             let l = eval_with_trace(left, trace)?;
             let r = eval_with_trace(right, trace)?;
@@ -413,9 +413,12 @@ fn simplify_with_trace(expr: &Expr, trace: &mut TraceBuilder) -> Result<Expr, St
             let out = Expr::Ceil { value: Box::new(v) };
             Ok((out.clone(), simplify_rule(expr, &out)))
         }
-        Expr::Round { value } => {
+        Expr::Round { value, mode } => {
             let v = simplify_with_trace(value, trace)?;
-            let out = Expr::Round { value: Box::new(v) };
+            let out = Expr::Round {
+                value: Box::new(v),
+                mode: *mode,
+            };
             Ok((out.clone(), simplify_rule(expr, &out)))
         }
         Expr::Log { base, value } => {
