@@ -1,0 +1,44 @@
+# calcd — the kernel as a persistent process.
+#
+# Built separately from anything that consumes it, because it is the same binary
+# for every caller and the whole point of it is that the arithmetic does not
+# change with the transport.
+
+FROM rust:1-slim AS build
+WORKDIR /src
+
+# Dependency compile cached against the manifests alone. A change to src/ should
+# not rebuild nalgebra.
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src/bin \
+  && echo 'fn main() {}' > src/main.rs \
+  && echo 'fn main() {}' > src/bin/calcd.rs \
+  && echo '' > src/lib.rs \
+  && cargo build --release --features server --bin calcd 2>/dev/null || true \
+  && rm -rf src
+
+COPY . .
+# Touch so cargo does not reuse the stub's fingerprint for the real sources.
+RUN touch src/lib.rs src/bin/calcd.rs \
+  && cargo build --release --features server --bin calcd
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates wget \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/target/release/calcd /usr/local/bin/calcd
+
+# This process solves anything it is handed and asks nobody for permission —
+# entitlement is checked one tier up. It is only ever an internal service, and
+# running it unprivileged is the cheapest part of keeping that true.
+RUN useradd --system --create-home --shell /usr/sbin/nologin calcd
+USER calcd
+
+EXPOSE 8787
+ENV CALCD_PORT=8787 CALCD_HOST=0.0.0.0
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8787/v1/health >/dev/null || exit 1
+
+CMD ["calcd"]

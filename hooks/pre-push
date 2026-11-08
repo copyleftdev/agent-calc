@@ -67,7 +67,19 @@ done
 printf "  Running: cargo mutants %s\n\n" "$FILE_FLAGS"
 
 # Exit 0 = all caught/unviable; exit 1 = missed; exit 2 = timeout only (detected, not missed)
-JOBS="${AGENT_CALC_MUTANTS_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)}"
+if [ -n "${AGENT_CALC_MUTANTS_JOBS:-}" ]; then
+    JOBS="$AGENT_CALC_MUTANTS_JOBS"
+else
+    DETECTED_JOBS="$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
+    if ! [[ "$DETECTED_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+        DETECTED_JOBS=4
+    fi
+    if (( DETECTED_JOBS > 8 )); then
+        JOBS=8
+    else
+        JOBS="$DETECTED_JOBS"
+    fi
+fi
 cargo mutants --timeout-multiplier 3.0 --jobs "$JOBS" $FILE_FLAGS -- --locked || true
 
 if grep -q '.' mutants.out/missed.txt 2>/dev/null; then

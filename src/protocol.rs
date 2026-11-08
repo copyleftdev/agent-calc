@@ -47,6 +47,7 @@ impl Describe {
                 "operate-on-exact-rational-polynomials",
                 "analyze-exact-rational-intervals",
                 "evaluate-exact-rational-time-value-finance",
+                "model-exact-discounted-cash-flow-prices",
                 "convert-and-compose-dimension-checked-quantities",
                 "evaluate-f64-matrix-operations",
                 "evaluate-statistical-distributions-and-samples",
@@ -71,6 +72,7 @@ impl Describe {
                 "polynomial-safe: polynomial coefficients are exact rational expressions in ascending power order",
                 "interval-safe: interval arithmetic preserves ordered exact rational bounds",
                 "finance-safe: time-value calculations use exact rational cash-flow math",
+                "price-model-safe: fixed-point decimal inputs remain exact and output rounding is declared",
                 "dimension-safe: unit operations are checked before arithmetic",
                 "shape-safe: matrix operations validate dimensions before calling nalgebra",
                 "parameter-safe: distribution parameters are validated before calling statrs",
@@ -87,6 +89,7 @@ impl Describe {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvalRequest {
     pub expr: Expr,
     #[serde(default = "default_decimal_places")]
@@ -94,7 +97,7 @@ pub struct EvalRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Expr {
     Integer {
         value: String,

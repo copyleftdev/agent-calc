@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 pub mod assumptions;
+pub mod bridge;
 pub mod calculus;
 pub mod complex;
 pub mod finance;
@@ -21,8 +22,12 @@ pub use assumptions::{
     Assumption, AssumptionDomain, AssumptionsRequest, AssumptionsResponse, ComparisonOp,
     assumptions_schema_json,
 };
+pub use bridge::{ALLOWED_TOOL_COMMANDS, execute_tool_json, tool_schema_json};
 pub use calculus::{CalculusRequest, CalculusResponse, calculus_schema_json};
-pub use finance::{FinanceCheck, FinanceRequest, FinanceResponse, finance_schema_json};
+pub use finance::{
+    DecimalRounding, DiscountedCashFlowPrice, FinanceCheck, FinanceRequest, FinanceResponse,
+    PriceValue, finance_schema_json,
+};
 pub use inequality::{
     InequalityInput, InequalityRelation, InequalityRequest, InequalityResponse, SolutionSet,
     inequality_schema_json,

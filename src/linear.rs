@@ -2,7 +2,10 @@ use crate::{
     CONTRACT_VERSION,
     protocol::{ErrorCode, classify_error},
 };
-use good_lp::{Expression, Solution, SolverModel, Variable, default_solver, variable, variables};
+use good_lp::{
+    Expression, ResolutionError, Solution, SolverModel, Variable, default_solver, variable,
+    variables,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -85,6 +88,23 @@ pub enum LinearResponse {
         best_objective: Option<f64>,
         best_variables: Option<Vec<f64>>,
     },
+    /// The program is well formed and has no solution. This is an answer, not a
+    /// failure: the caller asked a valid question and the honest reply is that
+    /// nothing satisfies these constraints. Reporting it as `error` with code
+    /// `invalid_input` said the request was malformed, which sent a caller
+    /// looking for a bug in a request that was perfectly good — and hid the one
+    /// fact they needed, which is that the plan cannot be made to work.
+    Infeasible {
+        contract_version: String,
+        reason: String,
+    },
+    /// Also an answer: the objective can be improved without limit, so there is
+    /// no optimum to report. Almost always a missing constraint rather than a
+    /// malformed request.
+    Unbounded {
+        contract_version: String,
+        reason: String,
+    },
     Error {
         contract_version: String,
         code: ErrorCode,
@@ -118,6 +138,12 @@ enum EvalOk {
         best_obj: Option<f64>,
         best_vars: Option<Vec<f64>>,
     },
+    Infeasible {
+        reason: &'static str,
+    },
+    Unbounded {
+        reason: &'static str,
+    },
 }
 
 impl LinearRequest {
@@ -148,6 +174,14 @@ impl LinearRequest {
                 nodes_explored,
                 best_objective: best_obj,
                 best_variables: best_vars,
+            },
+            Ok(EvalOk::Infeasible { reason }) => LinearResponse::Infeasible {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                reason: reason.to_owned(),
+            },
+            Ok(EvalOk::Unbounded { reason }) => LinearResponse::Unbounded {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                reason: reason.to_owned(),
             },
             Err(reason) => LinearResponse::Error {
                 contract_version: CONTRACT_VERSION.to_owned(),
@@ -187,7 +221,20 @@ impl LinearRequest {
 
         if integer_indices.is_empty() {
             let eff = effective_bounds(&bounds, None);
-            let (obj, vars) = solve_lp_relaxation(*direction, objective, &eff, constraints)?;
+            let (obj, vars) = match solve_lp_relaxation(*direction, objective, &eff, constraints) {
+                Ok(v) => v,
+                Err(SolveFailure::Infeasible) => {
+                    return Ok(EvalOk::Infeasible {
+                        reason: "no point satisfies every constraint",
+                    });
+                }
+                Err(SolveFailure::Unbounded) => {
+                    return Ok(EvalOk::Unbounded {
+                        reason: "the objective can be improved without limit",
+                    });
+                }
+                Err(SolveFailure::Invalid(m)) => return Err(m),
+            };
             return Ok(EvalOk::Optimal {
                 obj,
                 vars,
@@ -218,7 +265,10 @@ impl LinearRequest {
                 best_obj: best.as_ref().map(|(o, _)| *o),
                 best_vars: best.map(|(_, v)| v),
             }),
-            MilpResult::Infeasible => Err("no feasible integer solution found".to_owned()),
+            MilpResult::Infeasible => Ok(EvalOk::Infeasible {
+                reason: "no assignment of the integer variables satisfies every constraint",
+            }),
+            MilpResult::Failed(m) => Err(m),
         }
     }
 }
@@ -227,6 +277,10 @@ impl LinearRequest {
 
 enum MilpResult {
     Solution(f64, Vec<f64>),
+    /// The solver itself misbehaved. Distinct from Infeasible, because "your
+    /// program has no solution" and "our solver broke" are different sentences
+    /// and only one of them is about the caller's model.
+    Failed(String),
     BudgetExceeded {
         nodes_explored: u32,
         best: Option<(f64, Vec<f64>)>,
@@ -304,7 +358,8 @@ fn solve_milp(
 
         let lp = match solve_lp_relaxation(direction, objective, &node, constraints) {
             Ok(r) => r,
-            Err(_) => continue, // infeasible or unbounded — prune
+            Err(SolveFailure::Infeasible | SolveFailure::Unbounded) => continue,
+            Err(SolveFailure::Invalid(m)) => return MilpResult::Failed(m),
         };
         let (lp_obj, lp_vars) = lp;
 
@@ -360,12 +415,20 @@ fn solve_milp(
 
 // ── LP relaxation solver ──────────────────────────────────────────────────────
 
+/// Why a solve did not produce an optimum. Two of these are answers about the
+/// program; only the third is a complaint about the request.
+enum SolveFailure {
+    Infeasible,
+    Unbounded,
+    Invalid(String),
+}
+
 fn solve_lp_relaxation(
     direction: ObjectiveDirection,
     objective: &[f64],
     node_bounds: &[(f64, f64)],
     constraints: &[LinearConstraint],
-) -> Result<(f64, Vec<f64>), String> {
+) -> Result<(f64, Vec<f64>), SolveFailure> {
     let mut problem_vars = variables!();
     let vars: Vec<Variable> = node_bounds
         .iter()
@@ -399,16 +462,26 @@ fn solve_lp_relaxation(
         };
     }
 
-    let solution = model
-        .solve()
-        .map_err(|e| format!("linear solve failed: {e}"))?;
+    // good_lp already separates "no solution exists" and "no finite optimum"
+    // from everything else. Flattening all three into one string was what made a
+    // perfectly well formed program look like a malformed request.
+    let solution = match model.solve() {
+        Ok(s) => s,
+        Err(ResolutionError::Infeasible) => return Err(SolveFailure::Infeasible),
+        Err(ResolutionError::Unbounded) => return Err(SolveFailure::Unbounded),
+        Err(e) => return Err(SolveFailure::Invalid(format!("linear solve failed: {e}"))),
+    };
     let values: Vec<f64> = vars.iter().map(|&v| solution.value(v)).collect();
     if !values.iter().all(|v| v.is_finite()) {
-        return Err("linear solver returned non-finite variable values".to_owned());
+        return Err(SolveFailure::Invalid(
+            "linear solver returned non-finite variable values".to_owned(),
+        ));
     }
     let obj = solution.eval(obj_expr);
     if !obj.is_finite() {
-        return Err("linear solver returned a non-finite objective value".to_owned());
+        return Err(SolveFailure::Invalid(
+            "linear solver returned a non-finite objective value".to_owned(),
+        ));
     }
     Ok((obj, values))
 }
@@ -681,6 +754,70 @@ mod tests {
     }
 
     #[test]
+    fn infeasible_is_an_answer_not_a_rejection() {
+        // x >= 5 and x <= 1. Perfectly well formed, and there is no such x.
+        // Reporting this as error/invalid_input told the caller their request was
+        // malformed and sent them hunting for a bug that was not there.
+        let r = milp(
+            ObjectiveDirection::Minimize,
+            vec![1.0],
+            vec![VariableBounds {
+                lower: Some(0.0),
+                upper: Some(10.0),
+                kind: VariableKind::Continuous,
+            }],
+            vec![
+                LinearConstraint {
+                    coefficients: vec![1.0],
+                    relation: ConstraintRelation::Ge,
+                    rhs: 5.0,
+                },
+                le(vec![1.0], 1.0),
+            ],
+            1000,
+        );
+        assert!(
+            matches!(r, LinearResponse::Infeasible { .. }),
+            "expected infeasible, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn infeasible_integer_program_is_also_an_answer() {
+        // 2x = 1 over the integers: the relaxation solves, the integer program
+        // cannot. This is the path a plan that cannot be made to work arrives on.
+        let r = milp(
+            ObjectiveDirection::Minimize,
+            vec![1.0],
+            vec![VariableBounds {
+                lower: Some(0.0),
+                upper: Some(10.0),
+                kind: VariableKind::Integer,
+            }],
+            vec![LinearConstraint {
+                coefficients: vec![2.0],
+                relation: ConstraintRelation::Eq,
+                rhs: 1.0,
+            }],
+            1000,
+        );
+        assert!(
+            matches!(r, LinearResponse::Infeasible { .. }),
+            "expected infeasible, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn a_malformed_request_is_still_an_error() {
+        // The distinction only means something if the other side still holds.
+        let r = milp(ObjectiveDirection::Minimize, vec![], vec![], vec![], 1000);
+        assert!(
+            matches!(r, LinearResponse::Error { .. }),
+            "expected error, got {r:?}"
+        );
+    }
+
+    #[test]
     fn rejects_invalid_inputs() {
         assert!(matches!(
             milp(ObjectiveDirection::Maximize, vec![], vec![], vec![], 1000),
@@ -862,8 +999,11 @@ mod tests {
     }
 
     #[test]
-    fn ilp_no_feasible_integer_solution_errors() {
-        // x + y = 0.5, x,y ∈ Z≥0 — no integer solution (sum of non-negative integers can't be 0.5)
+    fn ilp_with_no_integer_solution_reports_infeasible() {
+        // x + y = 0.5 over the non-negative integers. This test previously asserted
+        // that the answer was an Error — it was encoding the bug, so its failure is
+        // what proves the fix landed. Nothing about the request is malformed; the
+        // program simply has no solution, and that is a different sentence.
         match milp(
             ObjectiveDirection::Maximize,
             vec![1.0, 1.0],
@@ -875,13 +1015,10 @@ mod tests {
             }],
             500,
         ) {
-            LinearResponse::Error { reason, .. } => {
-                assert!(
-                    reason.contains("no feasible integer solution"),
-                    "unexpected reason: {reason}"
-                );
+            LinearResponse::Infeasible { reason, .. } => {
+                assert!(reason.contains("satisfies"), "unexpected reason: {reason}");
             }
-            other => panic!("expected error, got {other:?}"),
+            other => panic!("expected infeasible, got {other:?}"),
         }
     }
 

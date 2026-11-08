@@ -97,7 +97,10 @@ range analysis over closed rational domains, including exact critical points
 found through the polynomial derivative.
 
 The `finance` slice supports exact rational future value, present value,
-discount factors, and net present value over typed expression cash flows.
+discount factors, net present value, and discounted-cash-flow price models.
+DCF inputs may be fixed-point decimal strings, which are parsed directly into
+arbitrary-size rationals without passing through binary floating point. Price
+output declares its rounding mode.
 
 Unit conversion and dimension-checked quantity arithmetic are exposed through
 `agent-calc units` and are backed by `uom`.
@@ -285,6 +288,17 @@ printf '%s\n' '{
     { "kind": "integer", "value": "55" },
     { "kind": "rational", "numerator": "121", "denominator": "2" }
   ]
+}' | cargo run -- finance
+```
+
+```bash
+printf '%s\n' '{
+  "intent": "discounted_cash_flow",
+  "cash_flows": ["100.00", "110.00", "121.00"],
+  "discount_rate": "0.10",
+  "terminal_growth_rate": "0.03",
+  "decimal_places": 2,
+  "rounding_mode": "half_even"
 }' | cargo run -- finance
 ```
 

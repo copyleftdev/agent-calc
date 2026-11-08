@@ -2,6 +2,7 @@ use crate::{
     CONTRACT_VERSION,
     protocol::{ErrorCode, classify_error},
 };
+use accurate::{sum::Klein, traits::SumAccumulator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use statrs::distribution::{
@@ -373,6 +374,10 @@ pub enum StatsResponse {
         r_squared: f64,
         residual_std_dev: f64,
         std_errors: Vec<f64>,
+        /// 2-norm condition number of the augmented design matrix `[1 | X]`.
+        condition_number: f64,
+        /// Numerical rank of `[1 | X]` under the solver tolerance.
+        numerical_rank: usize,
         n: usize,
         k: usize,
         exactness: StatsExactness,
@@ -522,6 +527,8 @@ impl StatsRequest {
                 r_squared,
                 residual_std_dev,
                 std_errors,
+                condition_number,
+                numerical_rank,
                 n,
                 k,
             }) => StatsResponse::MultipleRegression {
@@ -530,6 +537,8 @@ impl StatsRequest {
                 r_squared,
                 residual_std_dev,
                 std_errors,
+                condition_number,
+                numerical_rank,
                 n,
                 k,
                 exactness: StatsExactness::ApproximateF64,
@@ -773,6 +782,8 @@ impl StatsRequest {
                         r_squared: out.r_squared,
                         residual_std_dev: out.residual_std_dev,
                         std_errors: out.std_errors,
+                        condition_number: out.condition_number,
+                        numerical_rank: out.numerical_rank,
                         n: out.n,
                         k: out.k,
                     })
@@ -1496,6 +1507,8 @@ enum StatsOutput {
         r_squared: f64,
         residual_std_dev: f64,
         std_errors: Vec<f64>,
+        condition_number: f64,
+        numerical_rank: usize,
         n: usize,
         k: usize,
     },
@@ -1533,21 +1546,15 @@ enum StatsOutput {
     },
 }
 
-/// Neumaier compensated summation. This preserves small terms that would
-/// otherwise be lost when values have very different magnitudes.
+/// Second-order compensated summation using Klein's cascaded accumulator.
+///
+/// Callers still scale terms before accumulation where the mathematical result
+/// can be finite even though the unscaled sum is not representable as `f64`.
 fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
-    let mut sum = 0.0;
-    let mut correction = 0.0;
-    for value in values {
-        let next = sum + value;
-        if sum.abs() >= value.abs() {
-            correction += (sum - next) + value;
-        } else {
-            correction += (value - next) + sum;
-        }
-        sum = next;
-    }
-    sum + correction
+    values
+        .into_iter()
+        .fold(Klein::zero(), |sum, value| sum + value)
+        .sum()
 }
 
 /// Scale before summing so a finite mean remains representable even when the
@@ -1759,6 +1766,8 @@ struct MultipleRegressionOutput {
     r_squared: f64,
     residual_std_dev: f64,
     std_errors: Vec<f64>,
+    condition_number: f64,
+    numerical_rank: usize,
     n: usize,
     k: usize,
 }
@@ -1828,6 +1837,19 @@ fn multiple_linear_regression(
 
     // SVD least-squares solve — stable for ill-conditioned (Longley-class) matrices
     let svd = design.clone().svd(true, true);
+    let sigma = &svd.singular_values;
+    let sigma_max = sigma.iter().copied().fold(0.0_f64, f64::max);
+    let numerical_rank = sigma
+        .iter()
+        .filter(|&&singular_value| sv_significant(singular_value, sigma_max))
+        .count();
+    if numerical_rank < p {
+        return Err(format!(
+            "design matrix is rank-deficient: numerical rank {numerical_rank}, expected {p}"
+        ));
+    }
+    let sigma_min = sigma.iter().copied().fold(f64::INFINITY, f64::min);
+    let condition_number = sigma_max / sigma_min;
     let beta = svd
         .solve(&y_vec, 1e-10)
         .map_err(|_| "design matrix is rank-deficient".to_owned())?;
@@ -1848,22 +1870,18 @@ fn multiple_linear_regression(
     // Std errors: se[i] = s * sqrt( Σ_j (V[i,j] / σ_j)² )
     // Var(β̂) = σ² (X̃ᵀX̃)⁻¹ = σ² V Σ⁻² Vᵀ
     let v_t = svd.v_t.ok_or_else(|| "SVD did not compute V".to_owned())?;
-    let sigma = &svd.singular_values;
-    let sigma_max = sigma.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     #[allow(clippy::manual_clamp)]
     let std_errors: Vec<f64> = (0..p)
         .map(|i| {
-            let sum_sq: f64 = (0..sigma.len())
-                .map(|j| {
-                    let s = sigma[j];
-                    if sv_significant(s, sigma_max) {
-                        let v_ji = v_t[(j, i)];
-                        (v_ji / s).powi(2)
-                    } else {
-                        0.0
-                    }
-                })
-                .sum();
+            let sum_sq = compensated_sum((0..sigma.len()).map(|j| {
+                let s = sigma[j];
+                if sv_significant(s, sigma_max) {
+                    let v_ji = v_t[(j, i)];
+                    (v_ji / s).powi(2)
+                } else {
+                    0.0
+                }
+            }));
             residual_std_dev * sum_sq.sqrt()
         })
         .collect();
@@ -1873,6 +1891,8 @@ fn multiple_linear_regression(
         r_squared,
         residual_std_dev,
         std_errors,
+        condition_number,
+        numerical_rank,
         n,
         k,
     })
@@ -2067,11 +2087,12 @@ fn chi_square_gof_test(
     if !expected.iter().all(|v| v.is_finite() && *v > 0.0) {
         return Err("expected values must be finite and positive".to_owned());
     }
-    let chi2: f64 = observed
-        .iter()
-        .zip(expected.iter())
-        .map(|(o, e)| (o - e).powi(2) / e)
-        .sum();
+    let chi2 = compensated_sum(
+        observed
+            .iter()
+            .zip(expected.iter())
+            .map(|(o, e)| (o - e).powi(2) / e),
+    );
     let dof = (observed.len() - 1) as f64;
     let chi2_dist = ChiSquared::new(dof).map_err(|e| e.to_string())?;
     let p_value = 1.0 - chi2_dist.cdf(chi2);
@@ -2275,7 +2296,7 @@ fn mann_whitney_u_test(
     }
     let pooled: Vec<f64> = sample1.iter().chain(sample2.iter()).copied().collect();
     let ranks = compute_ranks(&pooled, RankMethod::Average);
-    let r1: f64 = ranks[..n1].iter().sum();
+    let r1 = compensated_sum(ranks[..n1].iter().copied());
     let u1 = r1 - (n1 * (n1 + 1) / 2) as f64;
     let mu_u = (n1 * n2) as f64 / 2.0;
     let sigma_u = ((n1 * n2 * (n1 + n2 + 1)) as f64 / 12.0).sqrt();
@@ -2324,12 +2345,13 @@ fn wilcoxon_signed_rank_test(
     }
     let abs_nz: Vec<f64> = nonzero.iter().map(|d| d.abs()).collect();
     let ranks = compute_ranks(&abs_nz, RankMethod::Average);
-    let w_plus: f64 = nonzero
-        .iter()
-        .zip(ranks.iter())
-        .filter(|(d, _)| (**d).is_sign_positive())
-        .map(|(_, r)| r)
-        .sum();
+    let w_plus = compensated_sum(
+        nonzero
+            .iter()
+            .zip(ranks.iter())
+            .filter(|(d, _)| (**d).is_sign_positive())
+            .map(|(_, r)| *r),
+    );
     let mu_w = (n_nz * (n_nz + 1)) as f64 / 4.0;
     let sigma_w = ((n_nz * (n_nz + 1) * (2 * n_nz + 1)) as f64 / 24.0).sqrt();
     let z = (w_plus - mu_w) / sigma_w;
@@ -2368,7 +2390,7 @@ fn kruskal_wallis_test(groups: &[Vec<f64>], alpha: f64) -> Result<StatsOutput, S
     let mut offset = 0usize;
     for g in groups {
         let n_k = g.len();
-        let r_k: f64 = all_ranks[offset..offset + n_k].iter().sum();
+        let r_k = compensated_sum(all_ranks[offset..offset + n_k].iter().copied());
         h_sum += r_k * r_k / n_k as f64;
         offset += n_k;
     }
@@ -2805,6 +2827,12 @@ mod tests {
     fn compensated_sum_preserves_a_small_term_before_cancellation() {
         let sum = compensated_sum([1.0e-16, 1.0, -1.0]);
         assert_eq!(sum, 1.0e-16);
+    }
+
+    #[test]
+    fn compensated_sum_handles_exact_cancellation() {
+        let sum = compensated_sum([1.0, -1.0, 2.0, -2.0]);
+        assert_eq!(sum, 0.0);
     }
 
     #[test]
@@ -3789,6 +3817,8 @@ mod tests {
                 coefficients,
                 r_squared,
                 residual_std_dev,
+                condition_number,
+                numerical_rank,
                 n,
                 k,
                 ..
@@ -3813,8 +3843,31 @@ mod tests {
                 );
                 assert!((r_squared - 1.0).abs() < 1e-10, "r2={r_squared}");
                 assert!(residual_std_dev < 1e-8, "resid_std={residual_std_dev}");
+                assert_eq!(numerical_rank, 3);
+                assert!(condition_number.is_finite() && condition_number >= 1.0);
             }
             other => panic!("expected MultipleRegression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_rejects_rank_deficient_design_with_diagnostic() {
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 4.0],
+            vec![3.0, 6.0],
+            vec![4.0, 8.0],
+            vec![5.0, 10.0],
+        ];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        match multi_reg(x, y) {
+            StatsResponse::Error { reason, .. } => {
+                assert!(reason.contains("rank-deficient"), "reason={reason}");
+                assert!(reason.contains("numerical rank 2"), "reason={reason}");
+                assert!(reason.contains("expected 3"), "reason={reason}");
+            }
+            other => panic!("expected rank-deficient error, got {other:?}"),
         }
     }
 
@@ -3934,7 +3987,8 @@ mod tests {
 
     #[test]
     fn multiple_regression_std_errors_are_positive() {
-        // Kills (v_ji / s).powi(2) → (v_ji * s).powi(2): latter gives much larger se
+        // Broad sanity check only. Exact standard-error behavior is specified
+        // independently by the closed-form orthogonal-design test below.
         let x = vec![
             vec![1.0, 2.0],
             vec![2.0, 1.0],
@@ -3960,6 +4014,83 @@ mod tests {
                 }
             }
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn multiple_regression_standard_errors_match_closed_form_orthogonal_designs() {
+        // For [1, Z1, epsilon*Z2], the columns are mutually orthogonal and:
+        //
+        //   X'X = diag(8, 8, 8*epsilon^2)
+        //
+        // Z3 is orthogonal to every design column, so scaling it to a requested
+        // residual standard deviation gives an independent closed-form oracle:
+        //
+        //   SE = [r/sqrt(8), r/sqrt(8), r/(sqrt(8)*epsilon)]
+        //
+        // The sweep varies residual scale separately from conditioning. It
+        // includes r=2 and epsilon=1/(2*sqrt(8)), where the third coefficient
+        // deliberately collides under the plausible `r*q -> r+q` mutation:
+        // both formulas return 4 when r=q=2. Asserting the complete vector is
+        // therefore essential; the first two components still expose the
+        // mutation.
+        const Z1: [f64; 8] = [-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0];
+        const Z2: [f64; 8] = [-1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0];
+        const Z3: [f64; 8] = [-1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0];
+
+        let sqrt_eight = 8.0_f64.sqrt();
+        let collision_epsilon = 1.0 / (2.0 * sqrt_eight);
+        let epsilons = [1.0, collision_epsilon, 0.1, 0.01, 0.001, 0.0001];
+        let residual_scales = [0.5, 1.0, 2.0, 10.0];
+
+        for target_rsd in residual_scales {
+            for epsilon in epsilons {
+                let noise_scale = target_rsd * (5.0_f64 / 8.0).sqrt();
+                let x = (0..8)
+                    .map(|i| vec![Z1[i], epsilon * Z2[i]])
+                    .collect::<Vec<_>>();
+                let y = (0..8)
+                    .map(|i| 10.0 + 2.0 * Z1[i] + 3.0 * Z2[i] + noise_scale * Z3[i])
+                    .collect::<Vec<_>>();
+                let expected = [
+                    target_rsd / sqrt_eight,
+                    target_rsd / sqrt_eight,
+                    target_rsd / (sqrt_eight * epsilon),
+                ];
+
+                match multi_reg(x, y) {
+                    StatsResponse::MultipleRegression {
+                        residual_std_dev,
+                        std_errors,
+                        condition_number,
+                        numerical_rank,
+                        ..
+                    } => {
+                        assert_eq!(numerical_rank, 3);
+                        assert!(condition_number.is_finite());
+                        let rsd_relative_error = (residual_std_dev - target_rsd).abs() / target_rsd;
+                        assert!(
+                            rsd_relative_error < 1.0e-10,
+                            "rsd rel={rsd_relative_error:e} target={target_rsd} \
+                             epsilon={epsilon}"
+                        );
+                        for (index, (actual, oracle)) in std_errors.iter().zip(expected).enumerate()
+                        {
+                            let relative_error = (actual - oracle).abs() / oracle.abs();
+                            assert!(
+                                relative_error < 1.0e-9,
+                                "se[{index}] rel={relative_error:e} actual={actual} \
+                                 oracle={oracle} target_rsd={target_rsd} epsilon={epsilon} \
+                                 condition_number={condition_number}"
+                            );
+                        }
+                    }
+                    other => panic!(
+                        "expected MultipleRegression for target_rsd={target_rsd} \
+                         epsilon={epsilon}, got {other:?}"
+                    ),
+                }
+            }
         }
     }
 
@@ -4022,12 +4153,19 @@ mod tests {
                 r_squared,
                 residual_std_dev,
                 std_errors,
+                condition_number,
+                numerical_rank,
                 n,
                 k,
                 ..
             } => {
                 assert_eq!(n, 16);
                 assert_eq!(k, 6);
+                assert_eq!(numerical_rank, 7);
+                assert!(
+                    condition_number > 1.0e6 && condition_number.is_finite(),
+                    "condition_number={condition_number}"
+                );
                 // R² and residual std dev
                 let r2_rel = (r_squared - cert_r2).abs() / cert_r2;
                 assert!(r2_rel < 1e-10, "R² rel err={r2_rel:.2e} got={r_squared}");
