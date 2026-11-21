@@ -13,7 +13,8 @@ SHELL := /usr/bin/env bash
 
 BIN_NAME := agent-calc
 PACKAGE := agent-calc
-TARGET_DIR := target
+# Honour CARGO_TARGET_DIR (e.g. a shared ~/.cargo-target), like cargo does.
+TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)
 PROFILE ?= release
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
