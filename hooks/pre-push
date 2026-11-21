@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # agent-calc pre-push hook — mutation gate
 #
-# Runs cargo-mutants against any source files touched since the branch
-# diverged from main. Blocks the push if mutants survive.
-#
-# Only fires when pushing to main or when AGENT_CALC_MUTANTS=1 is set.
-# Feature branches skip mutation so iteration stays fast.
+# Opt-in: does nothing unless AGENT_CALC_MUTANTS=1 is set. When enabled,
+# runs bounded cargo-mutants against the src/ files touched since the branch
+# diverged from main, and blocks the push if mutants survive.
 #
 # Install: make install-hooks
 # Skip once: git push --no-verify
@@ -22,21 +20,10 @@ RST='\033[0m'
 
 TARGET_BRANCH="main"
 
-# Read the push target from the pre-push arguments (stdin: local-ref local-sha remote-ref remote-sha)
-REMOTE_REF=""
-while read -r _local_ref _local_sha _remote_ref _remote_sha; do
-    REMOTE_REF="$_remote_ref"
-    break
-done
-
-# Only run mutation when pushing to main (or forced via env)
+# Mutation is opt-in so a push never ties the machine up unasked.
 if [ "${AGENT_CALC_MUTANTS:-0}" != "1" ]; then
-    if [[ "$REMOTE_REF" != "refs/heads/${TARGET_BRANCH}" ]]; then
-        printf "${YLW}pre-push${RST}  skipping mutation (not pushing to ${TARGET_BRANCH})\n"
-        printf "  To run manually: ${YLW}make mutants${RST}\n"
-        printf "  To force on this push: ${YLW}AGENT_CALC_MUTANTS=1 git push${RST}\n\n"
-        exit 0
-    fi
+    printf "${YLW}pre-push${RST}  mutation gate off (opt in: ${YLW}AGENT_CALC_MUTANTS=1 git push${RST})\n"
+    exit 0
 fi
 
 printf "\nagent-calc pre-push — mutation gate\n\n"

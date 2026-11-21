@@ -240,10 +240,10 @@ in the repo root — no file copying, and hooks stay in version control.
 Takes ~30–60s. This is the full gate. Mutation is excluded because it is too
 slow for every commit.
 
-**`hooks/pre-push`** — runs when pushing to `main`:
-- Runs `cargo mutants` scoped to the `src/` files changed since `main`
-- On feature branches: skips automatically (logs a reminder instead)
-- Force on any push: `AGENT_CALC_MUTANTS=1 git push`
+**`hooks/pre-push`** — opt-in mutation gate:
+- Off by default on every branch, including `main` (mutation is heavy; never run it unasked)
+- Enable for one push: `AGENT_CALC_MUTANTS=1 git push`
+- When enabled, runs bounded `make mutants` scoped to the `src/` files changed since `main`
 
 To bypass in an emergency (with intent): `git commit --no-verify`
 

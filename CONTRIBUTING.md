@@ -51,9 +51,9 @@ make full         # before claiming a feature is done (ci + mutants)
 **`hooks/pre-commit`** fires on every `git commit` and runs the full gate:
 fmt-check → check → clippy → test → package → 4 contract smoke checks.
 
-**`hooks/pre-push`** fires when pushing to `main` and runs mutation testing
-scoped to the `src/` files changed since `main`. Feature branches skip it.
-Force it on any branch: `AGENT_CALC_MUTANTS=1 git push`.
+**`hooks/pre-push`** is opt-in: it does nothing unless you push with
+`AGENT_CALC_MUTANTS=1 git push`. Then it runs bounded mutation testing scoped
+to the `src/` files changed since `main` and blocks the push on survivors.
 
 Emergency bypass (use sparingly): `git commit --no-verify`
 
@@ -149,7 +149,7 @@ All gates are local git hooks — no remote CI.
 | Hook | Fires | Runs |
 |---|---|---|
 | `pre-commit` | every `git commit` | fmt + check + clippy + test + package + smoke |
-| `pre-push` | push to `main` | `cargo mutants` on changed src/ files |
+| `pre-push` | `AGENT_CALC_MUTANTS=1 git push` | `cargo mutants` on changed src/ files |
 
 Run `make audit` manually before any release to check supply-chain health.
 
