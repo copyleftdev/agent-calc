@@ -1,3 +1,9 @@
+# cargo-mutants reads ONLY this file (not a root-level mutants.toml).
+# Concurrency can't be set here; it is bounded by `make mutants` (see Makefile).
+timeout_multiplier = 3.0
+build_timeout_multiplier = 3.0
+minimum_test_timeout = 20
+
 # Equivalent mutations — algebraically indistinguishable from any test input.
 #
 # linear_regression: sum(xi ± mean_x) * (yi - mean_y) are equal because sum(yi-mean_y)=0

@@ -49,7 +49,7 @@ fi
 
 # Find source files changed relative to main
 CHANGED_FILES=$(git diff --name-only "$(git merge-base HEAD "origin/${TARGET_BRANCH}" 2>/dev/null || echo HEAD)" HEAD 2>/dev/null \
-    | grep '^src/.*\.rs$' | tr '\n' ' ')
+    | { grep '^src/.*\.rs$' || true; } | tr '\n' ' ')
 
 if [ -z "$CHANGED_FILES" ]; then
     printf "${GRN}  ok${RST}  no src/ changes — skipping mutation run\n\n"
@@ -66,21 +66,8 @@ done
 
 printf "  Running: cargo mutants %s\n\n" "$FILE_FLAGS"
 
-# Exit 0 = all caught/unviable; exit 1 = missed; exit 2 = timeout only (detected, not missed)
-if [ -n "${AGENT_CALC_MUTANTS_JOBS:-}" ]; then
-    JOBS="$AGENT_CALC_MUTANTS_JOBS"
-else
-    DETECTED_JOBS="$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
-    if ! [[ "$DETECTED_JOBS" =~ ^[1-9][0-9]*$ ]]; then
-        DETECTED_JOBS=4
-    fi
-    if (( DETECTED_JOBS > 8 )); then
-        JOBS=8
-    else
-        JOBS="$DETECTED_JOBS"
-    fi
-fi
-cargo mutants --timeout-multiplier 3.0 --jobs "$JOBS" $FILE_FLAGS -- --locked || true
+# Bounded run: all concurrency limits live in the Makefile `mutants` target.
+make --no-print-directory mutants CARGO_MUTANTS_FLAGS="$FILE_FLAGS -- --locked" || true
 
 if grep -q '.' mutants.out/missed.txt 2>/dev/null; then
     printf "\n${RED}Mutation gate failed — surviving mutants detected.${RST}\n"

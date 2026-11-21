@@ -213,7 +213,7 @@ Adding a new code: add the variant to `ErrorCode`, add a test in
 | `make ci` | Before committing — fmt + check + clippy + test + package |
 | `make full` | Before marking a feature done — ci + mutation testing |
 | `make smoke` | After `make install` — verify the binary is wired up |
-| `make mutants` | After implementing a new module or property test |
+| `make mutants` | After implementing a new module or property test. Bounded (1 job, 4 tasks, nice 10, own target dir). Scope it: `make mutants CARGO_MUTANTS_FLAGS="--file src/X.rs -- --test X_properties"`. Never call `cargo mutants` directly with default concurrency — it uses every core. |
 | `make clippy` | Periodically — catches lint warnings |
 | `make audit` | Before releases — supply chain check |
 | `make install-hooks` | Once per clone — wires up the git hooks |

@@ -60,7 +60,8 @@ step "cargo package" \
 
 # --- 6. Contract smoke checks -------------------------------------------------
 # Build the debug binary if needed (reuse what test already built)
-BIN="${ROOT}/target/debug/agent-calc"
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import sys,json; print(json.load(sys.stdin)["target_directory"])')"
+BIN="${TARGET_DIR}/debug/agent-calc"
 if [ ! -x "$BIN" ]; then
     info "building debug binary for smoke checks..."
     cargo build --quiet

@@ -23,9 +23,22 @@ CARGO ?= cargo
 CARGO_FLAGS ?=
 CARGO_TEST_FLAGS ?=
 CARGO_MUTANTS_FLAGS ?=
+# Mutation testing is bounded so it never saturates the workstation:
+# - MUTANTS_JOBS mutants at a time (default 1)
+# - MUTANTS_TASKS: global jobserver cap on concurrent rustc/test processes
+#   across ALL children (cargo-mutants' default is NCPUS)
+# - MUTANTS_THREADS cargo build jobs / test threads per process
+# - nice 10
+# - a dedicated, persistent target dir: deps compile once and are reused, and
+#   the shared ~/.cargo-target (and other projects' binaries) is never touched.
+MUTANTS_JOBS ?= 1
+MUTANTS_TASKS ?= 4
+MUTANTS_THREADS ?= 4
+MUTANTS_TARGET_DIR ?= $(HOME)/.cache/agent-calc-mutants/target
+MUTANTS_ENV = env CARGO_TARGET_DIR=$(MUTANTS_TARGET_DIR) CARGO_BUILD_JOBS=$(MUTANTS_THREADS) RUST_TEST_THREADS=$(MUTANTS_THREADS) nice -n 10
 
 RUST_SOURCES := $(shell find src tests -type f -name '*.rs' 2>/dev/null)
-MANIFESTS := Cargo.toml Cargo.lock mutants.toml
+MANIFESTS := Cargo.toml Cargo.lock .cargo/mutants.toml
 
 .PHONY: help
 help: ## Show available targets.
@@ -104,8 +117,8 @@ test-quiet: ## Run tests with quiet cargo output.
 	$(CARGO) test --quiet $(CARGO_FLAGS) $(CARGO_TEST_FLAGS)
 
 .PHONY: mutants
-mutants: ## Run cargo-mutants.
-	$(CARGO) mutants $(CARGO_MUTANTS_FLAGS)
+mutants: ## Run cargo-mutants, bounded (MUTANTS_JOBS/TASKS/THREADS). Scope with CARGO_MUTANTS_FLAGS.
+	$(MUTANTS_ENV) $(CARGO) mutants --jobs $(MUTANTS_JOBS) --jobserver-tasks $(MUTANTS_TASKS) $(CARGO_MUTANTS_FLAGS)
 
 .PHONY: mutants-list
 mutants-list: ## List discovered mutants without running them.
